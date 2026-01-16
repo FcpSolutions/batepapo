@@ -953,34 +953,63 @@ class ChatManager {
         document.addEventListener('keydown', escHandler);
     }
 
-    startVideoCall() {
-        // Atualiza atividade ao iniciar vídeo chamada
-        this.updateActivity().catch(err => {
-            console.warn('Erro ao atualizar atividade:', err);
-        });
-        
-        const modal = document.getElementById('videoCallModal');
-        const status = document.getElementById('videoCallStatus');
-        modal.style.display = 'flex';
-        
-        // Solicita acesso à câmera e microfone
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            .then(stream => {
-                const localVideo = document.getElementById('localVideo');
-                localVideo.srcObject = stream;
-                status.textContent = 'Chamada iniciada - Aguardando resposta...';
-                
-                // Simula conexão (em produção, usaria WebRTC)
-                setTimeout(() => {
-                    status.textContent = 'Conectado';
-                    status.style.color = '#4caf50';
-                }, 2000);
-            })
-            .catch(err => {
-                console.error('Erro ao acessar mídia:', err);
-                status.textContent = 'Erro ao acessar câmera/microfone';
-                status.style.color = '#f44336';
+    async startVideoCall() {
+        // Só funciona em chat privado
+        if (this.chatMode !== 'private' || !this.privateChatWith) {
+            alert('Você só pode fazer vídeo chamada em conversas privadas. Selecione um usuário primeiro.');
+            return;
+        }
+
+        try {
+            const service = window.supabaseService || supabaseService;
+            if (!service || !service.isReady()) {
+                alert('Serviço não disponível. Tente novamente.');
+                return;
+            }
+
+            // Cria convite de vídeo chamada
+            const invite = await service.createVideoCallInvite(this.privateChatWith);
+            console.log('✅ Convite de vídeo chamada criado:', invite);
+            
+            // Armazena o ID do convite
+            this.currentVideoCallInviteId = invite.id;
+
+            // Atualiza atividade
+            this.updateActivity().catch(err => {
+                console.warn('Erro ao atualizar atividade:', err);
             });
+            
+            // Mostra modal de chamada (aguardando resposta)
+            const modal = document.getElementById('videoCallModal');
+            const status = document.getElementById('videoCallStatus');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+            if (status) {
+                status.textContent = 'Chamando... Aguardando resposta...';
+                status.style.color = '#fff';
+            }
+            
+            // Solicita acesso à câmera e microfone
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then(stream => {
+                    const localVideo = document.getElementById('localVideo');
+                    if (localVideo) {
+                        localVideo.srcObject = stream;
+                        this.currentVideoStream = stream;
+                    }
+                })
+                .catch(err => {
+                    console.error('Erro ao acessar mídia:', err);
+                    if (status) {
+                        status.textContent = 'Erro ao acessar câmera/microfone';
+                        status.style.color = '#f44336';
+                    }
+                });
+        } catch (error) {
+            console.error('Erro ao iniciar vídeo chamada:', error);
+            alert('Erro ao iniciar vídeo chamada: ' + (error.message || 'Tente novamente.'));
+        }
     }
 
     async endVideoCall() {
