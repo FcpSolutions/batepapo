@@ -49,6 +49,9 @@ class ChatManager {
         // Inicia Realtime (atualizações em tempo real)
         this.initRealtime();
         
+        // Inicia escuta de convites de vídeo chamada
+        this.initVideoCallInvites();
+        
         // Atualiza periodicamente apenas como fallback (muito menos frequente)
         this.startPeriodicUpdates();
     }
@@ -67,6 +70,8 @@ class ChatManager {
         const endCallBtn = document.getElementById('endCall');
         const toggleVideoBtn = document.getElementById('toggleVideo');
         const toggleAudioBtn = document.getElementById('toggleAudio');
+        const acceptCallBtn = document.getElementById('acceptCallBtn');
+        const rejectCallBtn = document.getElementById('rejectCallBtn');
 
         messageForm.addEventListener('submit', (e) => {
             e.preventDefault();
@@ -172,6 +177,22 @@ class ChatManager {
         endCallBtn.addEventListener('click', () => {
             this.endVideoCall();
         });
+
+        // Botões de aceitar/recusar vídeo chamada
+        const acceptCallBtn = document.getElementById('acceptCallBtn');
+        const rejectCallBtn = document.getElementById('rejectCallBtn');
+        
+        if (acceptCallBtn) {
+            acceptCallBtn.addEventListener('click', () => {
+                this.acceptVideoCall();
+            });
+        }
+
+        if (rejectCallBtn) {
+            rejectCallBtn.addEventListener('click', () => {
+                this.rejectVideoCall();
+            });
+        }
 
         toggleVideoBtn.addEventListener('click', () => {
             this.toggleVideo();
@@ -964,17 +985,34 @@ class ChatManager {
             });
     }
 
-    endVideoCall() {
+    async endVideoCall() {
         const modal = document.getElementById('videoCallModal');
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
         
+        // Cancela convite se ainda estiver pendente
+        if (this.currentVideoCallInviteId) {
+            try {
+                const service = window.supabaseService || supabaseService;
+                if (service && service.isReady()) {
+                    await service.cancelVideoCallInvite(this.currentVideoCallInviteId);
+                }
+            } catch (error) {
+                console.error('Erro ao cancelar convite:', error);
+            }
+            this.currentVideoCallInviteId = null;
+        }
+        
         // Para os streams
-        if (localVideo.srcObject) {
+        if (this.currentVideoStream) {
+            this.currentVideoStream.getTracks().forEach(track => track.stop());
+            this.currentVideoStream = null;
+        }
+        if (localVideo && localVideo.srcObject) {
             localVideo.srcObject.getTracks().forEach(track => track.stop());
             localVideo.srcObject = null;
         }
-        if (remoteVideo.srcObject) {
+        if (remoteVideo && remoteVideo.srcObject) {
             remoteVideo.srcObject.getTracks().forEach(track => track.stop());
             remoteVideo.srcObject = null;
         }
@@ -1357,6 +1395,178 @@ class ChatManager {
             console.log('✅ Realtime conectado - mensagens em tempo real ativadas');
         } catch (error) {
             console.error('Erro ao inicializar Realtime:', error);
+        }
+    }
+
+    initVideoCallInvites() {
+        const service = window.supabaseService || supabaseService;
+        if (!service || !service.isReady()) {
+            setTimeout(() => this.initVideoCallInvites(), 1000);
+            return;
+        }
+
+        try {
+            // Inscreve-se em convites de vídeo chamada
+            this.videoCallInviteChannel = service.subscribeToVideoCallInvites((payload) => {
+                if (payload.eventType === 'INSERT') {
+                    // Novo convite recebido
+                    this.handleIncomingVideoCallInvite(payload.new);
+                } else if (payload.eventType === 'UPDATE') {
+                    // Convite foi aceito/recusado/cancelado
+                    this.handleVideoCallInviteUpdate(payload.new);
+                }
+            });
+
+            // Carrega convites pendentes ao iniciar
+            this.loadPendingVideoCallInvites();
+
+            console.log('✅ Escuta de convites de vídeo chamada ativada');
+        } catch (error) {
+            console.error('Erro ao inicializar escuta de convites:', error);
+        }
+    }
+
+    async loadPendingVideoCallInvites() {
+        try {
+            const service = window.supabaseService || supabaseService;
+            if (!service || !service.isReady()) return;
+
+            const invites = await service.getPendingVideoCallInvites();
+            if (invites && invites.length > 0) {
+                // Mostra o convite mais recente
+                this.showVideoCallInviteModal(invites[0]);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar convites pendentes:', error);
+        }
+    }
+
+    handleIncomingVideoCallInvite(invite) {
+        // Verifica se o convite é para o usuário atual
+        if (invite.recipient_id === this.currentUser.id && invite.status === 'pending') {
+            this.showVideoCallInviteModal(invite);
+        }
+    }
+
+    handleVideoCallInviteUpdate(invite) {
+        // Se o convite foi aceito e o usuário atual é quem chamou
+        if (invite.caller_id === this.currentUser.id && invite.status === 'accepted') {
+            const status = document.getElementById('videoCallStatus');
+            if (status) {
+                status.textContent = 'Conectado';
+                status.style.color = '#4caf50';
+            }
+        } else if (invite.recipient_id === this.currentUser.id && invite.status === 'rejected') {
+            // Convite foi recusado
+            this.hideVideoCallInviteModal();
+        } else if (invite.status === 'cancelled') {
+            // Convite foi cancelado
+            this.hideVideoCallInviteModal();
+        }
+    }
+
+    showVideoCallInviteModal(invite) {
+        const modal = document.getElementById('videoCallInviteModal');
+        const callerName = document.getElementById('callerName');
+        const callerCity = document.getElementById('callerCity');
+        
+        if (!modal || !invite) return;
+
+        // Armazena o ID do convite
+        this.currentIncomingVideoCallInviteId = invite.id;
+
+        // Preenche informações do chamador
+        if (invite.caller) {
+            callerName.textContent = invite.caller.nickname || 'Usuário';
+            callerCity.textContent = invite.caller.city || '';
+        } else {
+            // Busca informações do chamador se não vier no payload
+            this.getUserById(invite.caller_id).then(user => {
+                if (user) {
+                    callerName.textContent = user.nickname || 'Usuário';
+                    callerCity.textContent = user.city || '';
+                }
+            });
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    hideVideoCallInviteModal() {
+        const modal = document.getElementById('videoCallInviteModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        this.currentIncomingVideoCallInviteId = null;
+    }
+
+    async acceptVideoCall() {
+        if (!this.currentIncomingVideoCallInviteId) return;
+
+        try {
+            const service = window.supabaseService || supabaseService;
+            if (!service || !service.isReady()) {
+                alert('Serviço não disponível. Tente novamente.');
+                return;
+            }
+
+            // Aceita o convite
+            await service.acceptVideoCallInvite(this.currentIncomingVideoCallInviteId);
+
+            // Esconde o modal de convite
+            this.hideVideoCallInviteModal();
+
+            // Mostra o modal de vídeo chamada
+            const videoCallModal = document.getElementById('videoCallModal');
+            const status = document.getElementById('videoCallStatus');
+            if (videoCallModal) {
+                videoCallModal.style.display = 'flex';
+            }
+            if (status) {
+                status.textContent = 'Conectado';
+                status.style.color = '#4caf50';
+            }
+
+            // Solicita acesso à câmera e microfone
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then(stream => {
+                    const localVideo = document.getElementById('localVideo');
+                    if (localVideo) {
+                        localVideo.srcObject = stream;
+                        this.currentVideoStream = stream;
+                    }
+                })
+                .catch(err => {
+                    console.error('Erro ao acessar mídia:', err);
+                    if (status) {
+                        status.textContent = 'Erro ao acessar câmera/microfone';
+                        status.style.color = '#f44336';
+                    }
+                });
+        } catch (error) {
+            console.error('Erro ao aceitar vídeo chamada:', error);
+            alert('Erro ao aceitar vídeo chamada. Tente novamente.');
+        }
+    }
+
+    async rejectVideoCall() {
+        if (!this.currentIncomingVideoCallInviteId) return;
+
+        try {
+            const service = window.supabaseService || supabaseService;
+            if (!service || !service.isReady()) {
+                alert('Serviço não disponível. Tente novamente.');
+                return;
+            }
+
+            // Recusa o convite
+            await service.rejectVideoCallInvite(this.currentIncomingVideoCallInviteId);
+
+            // Esconde o modal
+            this.hideVideoCallInviteModal();
+        } catch (error) {
+            console.error('Erro ao recusar vídeo chamada:', error);
+            alert('Erro ao recusar vídeo chamada. Tente novamente.');
         }
     }
 

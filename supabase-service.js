@@ -792,6 +792,137 @@ class SupabaseService {
         }
     }
 
+    // ========== VÍDEO CHAMADA ==========
+
+    async createVideoCallInvite(recipientId) {
+        try {
+            this.checkReady();
+            const { data: { user } } = await this.client.auth.getUser();
+            if (!user) throw new Error('Usuário não autenticado');
+
+            // Cancela convites pendentes anteriores
+            await this.client
+                .from('video_call_invites')
+                .update({ status: 'cancelled' })
+                .eq('caller_id', user.id)
+                .eq('recipient_id', recipientId)
+                .eq('status', 'pending');
+
+            // Cria novo convite
+            const { data, error } = await this.client
+                .from('video_call_invites')
+                .insert({
+                    caller_id: user.id,
+                    recipient_id: recipientId,
+                    status: 'pending'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Erro ao criar convite de vídeo chamada:', error);
+            throw error;
+        }
+    }
+
+    async acceptVideoCallInvite(inviteId) {
+        try {
+            this.checkReady();
+            const { data: { user } } = await this.client.auth.getUser();
+            if (!user) throw new Error('Usuário não autenticado');
+
+            const { data, error } = await this.client
+                .from('video_call_invites')
+                .update({
+                    status: 'accepted',
+                    answered_at: new Date().toISOString()
+                })
+                .eq('id', inviteId)
+                .eq('recipient_id', user.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Erro ao aceitar convite de vídeo chamada:', error);
+            throw error;
+        }
+    }
+
+    async rejectVideoCallInvite(inviteId) {
+        try {
+            this.checkReady();
+            const { data: { user } } = await this.client.auth.getUser();
+            if (!user) throw new Error('Usuário não autenticado');
+
+            const { data, error } = await this.client
+                .from('video_call_invites')
+                .update({
+                    status: 'rejected',
+                    answered_at: new Date().toISOString()
+                })
+                .eq('id', inviteId)
+                .eq('recipient_id', user.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Erro ao recusar convite de vídeo chamada:', error);
+            throw error;
+        }
+    }
+
+    async cancelVideoCallInvite(inviteId) {
+        try {
+            this.checkReady();
+            const { data: { user } } = await this.client.auth.getUser();
+            if (!user) throw new Error('Usuário não autenticado');
+
+            const { data, error } = await this.client
+                .from('video_call_invites')
+                .update({ status: 'cancelled' })
+                .eq('id', inviteId)
+                .eq('caller_id', user.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Erro ao cancelar convite de vídeo chamada:', error);
+            throw error;
+        }
+    }
+
+    async getPendingVideoCallInvites() {
+        try {
+            this.checkReady();
+            const { data: { user } } = await this.client.auth.getUser();
+            if (!user) return [];
+
+            const { data, error } = await this.client
+                .from('video_call_invites')
+                .select(`
+                    *,
+                    caller:profiles!video_call_invites_caller_id_fkey(nickname, city)
+                `)
+                .eq('recipient_id', user.id)
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error('Erro ao buscar convites pendentes:', error);
+            return [];
+        }
+    }
+
     // ========== REALTIME ==========
 
     subscribeToMessages(callback) {

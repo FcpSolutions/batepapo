@@ -1,13 +1,47 @@
 -- Script para habilitar Realtime nas tabelas
 -- Execute este SQL no SQL Editor do Supabase
 
--- ========== HABILITAR REALTIME NA TABELA MESSAGES ==========
--- Adiciona a tabela messages à publicação Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+-- ========== HABILITAR REALTIME NAS TABELAS ==========
+-- Adiciona as tabelas à publicação Realtime apenas se ainda não estiverem incluídas
 
--- ========== HABILITAR REALTIME NA TABELA PROFILES ==========
--- Adiciona a tabela profiles à publicação Realtime (para atualizações de atividade)
-ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+DO $$
+BEGIN
+    -- Habilita Realtime na tabela messages (se ainda não estiver habilitada)
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'messages'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+        RAISE NOTICE 'Realtime habilitado para tabela messages';
+    ELSE
+        RAISE NOTICE 'Realtime já estava habilitado para tabela messages';
+    END IF;
+
+    -- Habilita Realtime na tabela profiles (se ainda não estiver habilitada)
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'profiles'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+        RAISE NOTICE 'Realtime habilitado para tabela profiles';
+    ELSE
+        RAISE NOTICE 'Realtime já estava habilitado para tabela profiles';
+    END IF;
+
+    -- Habilita Realtime na tabela video_call_invites (se ainda não estiver habilitada)
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'video_call_invites'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE video_call_invites;
+        RAISE NOTICE 'Realtime habilitado para tabela video_call_invites';
+    ELSE
+        RAISE NOTICE 'Realtime já estava habilitado para tabela video_call_invites';
+    END IF;
+END $$;
 
 -- ========== VERIFICAR SE FOI HABILITADO ==========
 -- Execute esta query para verificar quais tabelas têm Realtime habilitado
@@ -18,7 +52,7 @@ FROM pg_publication_tables
 WHERE pubname = 'supabase_realtime'
 ORDER BY tablename;
 
--- Você deve ver 'messages' e 'profiles' na lista
+-- Você deve ver 'messages', 'profiles' e 'video_call_invites' na lista
 
 -- ========== NOTA ==========
 -- Se você receber um erro dizendo que a tabela já está na publicação,

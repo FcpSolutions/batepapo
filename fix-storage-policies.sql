@@ -1,31 +1,16 @@
--- Script para configurar Storage e políticas RLS para mídias
+-- Script para CORRIGIR políticas RLS do Storage
 -- Execute este SQL no SQL Editor do Supabase
 
--- ========== IMPORTANTE: CRIAR O BUCKET PRIMEIRO ==========
--- 1. Vá em Storage no menu lateral do Supabase
--- 2. Clique em "Create a new bucket"
--- 3. Nome: "media"
--- 4. Public bucket: MARCADO (público) - Isso permite que as imagens sejam acessíveis via URL pública
---    OU deixe privado e use signed URLs (o código já suporta ambos)
--- 5. Clique em "Create bucket"
-
--- ========== VERIFICAR SE O BUCKET EXISTE ==========
--- Execute esta query para verificar se o bucket 'media' existe
-SELECT name, id, public
-FROM storage.buckets
-WHERE name = 'media';
-
--- Se não retornar nenhuma linha, você precisa criar o bucket manualmente no Dashboard
-
--- ========== CONFIGURAR POLÍTICAS RLS DO STORAGE ==========
-
--- Remove políticas antigas se existirem (para evitar conflitos)
+-- ========== REMOVER POLÍTICAS ANTIGAS ==========
 DROP POLICY IF EXISTS "Usuários podem fazer upload em sua pasta" ON storage.objects;
 DROP POLICY IF EXISTS "Usuários podem ler mídias" ON storage.objects;
 DROP POLICY IF EXISTS "Usuários podem deletar suas mídias" ON storage.objects;
 
+-- ========== CRIAR POLÍTICAS CORRIGIDAS ==========
+
 -- Política de UPLOAD (INSERT)
 -- Permite que usuários façam upload apenas em sua própria pasta (userId/)
+-- Usa storage.foldername() que é a função correta do Supabase
 CREATE POLICY "Usuários podem fazer upload em sua pasta"
 ON storage.objects FOR INSERT
 WITH CHECK (
@@ -60,6 +45,19 @@ SELECT
 FROM pg_policies
 WHERE schemaname = 'storage' 
 AND tablename = 'objects'
-AND policyname LIKE '%mídia%' OR policyname LIKE '%upload%' OR policyname LIKE '%pasta%';
+AND (policyname LIKE '%mídia%' OR policyname LIKE '%upload%' OR policyname LIKE '%pasta%' OR policyname LIKE '%ler%');
 
 -- Você deve ver 3 políticas listadas
+
+-- ========== NOTA IMPORTANTE ==========
+-- Se ainda não funcionar, tente esta versão alternativa mais permissiva (apenas para teste):
+-- 
+-- DROP POLICY IF EXISTS "Usuários podem fazer upload em sua pasta" ON storage.objects;
+-- CREATE POLICY "Usuários podem fazer upload em sua pasta"
+-- ON storage.objects FOR INSERT
+-- WITH CHECK (
+--     bucket_id = 'media'
+-- );
+-- 
+-- Isso permite upload de qualquer usuário autenticado no bucket media.
+-- Use apenas para testar. Depois, volte para a versão mais restritiva.
