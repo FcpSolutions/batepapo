@@ -500,50 +500,86 @@ class ChatManager {
 
     async loadMessages() {
         const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages) return;
+        
         chatMessages.innerHTML = '';
 
         // Carrega usuários bloqueados antes de filtrar mensagens
         await this.loadBlockedUsers();
 
-        let filteredMessages = [];
+        try {
+            const service = window.supabaseService || supabaseService;
+            let messages = [];
 
-        if (this.chatMode === 'public') {
-            // Chat público: mostra todas as mensagens públicas, exceto de usuários bloqueados
-            filteredMessages = this.messages.filter(message => {
-                if (message.type && message.type !== 'public') return false;
+            if (service && service.isReady()) {
+                // Busca mensagens do Supabase
+                if (this.chatMode === 'public') {
+                    messages = await service.getPublicMessages(100);
+                } else if (this.chatMode === 'private' && this.privateChatWith) {
+                    // Verifica se o usuário está bloqueado
+                    const isBlocked = this.blockedUsers.includes(this.privateChatWith);
+                    if (isBlocked) {
+                        this.showEmptyState();
+                        return;
+                    }
+                    messages = await service.getPrivateMessages(this.currentUser.id, this.privateChatWith, 100);
+                }
+            } else {
+                // Fallback para localStorage se Supabase não estiver pronto
+                messages = JSON.parse(localStorage.getItem('chatMessages')) || [];
+            }
+
+            // Inverte para ordem cronológica (mais antigas primeiro)
+            messages = messages.reverse();
+
+            // Filtra mensagens de usuários bloqueados
+            let filteredMessages = messages.filter(message => {
                 // Filtra mensagens de usuários bloqueados
-                return !this.blockedUsers.includes(message.userId);
+                if (this.blockedUsers.includes(message.userId)) {
+                    return false;
+                }
+
+                // Filtra por tipo de chat
+                if (this.chatMode === 'public') {
+                    return message.type === 'public';
+                } else if (this.chatMode === 'private') {
+                    if (message.type !== 'private') return false;
+                    const isFromMe = message.userId === this.currentUser.id;
+                    const isToMe = message.recipientId === this.currentUser.id;
+                    const isFromThem = message.userId === this.privateChatWith;
+                    const isToThem = message.recipientId === this.privateChatWith;
+                    return (isFromMe && isToThem) || (isFromThem && isToMe);
+                }
+                return true;
             });
-        } else if (this.chatMode === 'private') {
-            // Chat privado: mostra apenas mensagens entre os dois usuários
-            // Verifica se o usuário está bloqueado
-            const isBlocked = this.blockedUsers.includes(this.privateChatWith);
-            if (isBlocked) {
+
+            // Atualiza this.messages para compatibilidade
+            this.messages = messages;
+
+            if (filteredMessages.length === 0) {
                 this.showEmptyState();
                 return;
             }
 
-            filteredMessages = this.messages.filter(message => {
-                if (!message.type || message.type !== 'private') return false;
-                const isFromMe = message.userId === this.currentUser.id;
-                const isToMe = message.recipientId === this.currentUser.id;
-                const isFromThem = message.userId === this.privateChatWith;
-                const isToThem = message.recipientId === this.privateChatWith;
-                
-                return (isFromMe && isToThem) || (isFromThem && isToMe);
+            filteredMessages.forEach(message => {
+                this.displayMessage(message);
             });
+
+            this.scrollToBottom();
+        } catch (error) {
+            console.error('Erro ao carregar mensagens:', error);
+            // Em caso de erro, tenta usar localStorage como fallback
+            const fallbackMessages = JSON.parse(localStorage.getItem('chatMessages')) || [];
+            if (fallbackMessages.length > 0) {
+                this.messages = fallbackMessages;
+                fallbackMessages.forEach(message => {
+                    this.displayMessage(message);
+                });
+                this.scrollToBottom();
+            } else {
+                this.showEmptyState();
+            }
         }
-
-        if (filteredMessages.length === 0) {
-            this.showEmptyState();
-            return;
-        }
-
-        filteredMessages.forEach(message => {
-            this.displayMessage(message);
-        });
-
-        this.scrollToBottom();
     }
 
     async showEmptyState() {
