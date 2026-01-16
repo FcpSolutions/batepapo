@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bate-Papo - Login</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Configuração do Supabase (deve vir antes da biblioteca) -->
+    <script>
+        // Configuração do Supabase
+        const SUPABASE_URL = 'https://biotoafvuqgtlswlpjrt.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpb3RvYWZ2dXFndGxzd2xwanJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1OTExMjMsImV4cCI6MjA4NDE2NzEyM30.cUX-0lpYPNK4-KLpj5NUSeoA45ZouJBWFPtUbitLPTw';
+        
+        // Variável global para o cliente Supabase
+        let supabaseClient = null;
+        
+        // Função global para inicializar o Supabase
+        window.initSupabaseClient = function() {
+            try {
+                // A biblioteca UMD pode expor de diferentes formas
+                let SupabaseLib = null;
+                
+                // Tenta diferentes formas de acesso
+                if (typeof supabaseLib !== 'undefined' && supabaseLib.createClient) {
+                    SupabaseLib = supabaseLib;
+                } else if (typeof window.supabaseLib !== 'undefined' && window.supabaseLib.createClient) {
+                    SupabaseLib = window.supabaseLib;
+                } else if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+                    // Já está exposto como window.supabase
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    window.supabase = supabaseClient;
+                    console.log('✅ Supabase inicializado com sucesso (via window.supabase)');
+                    return;
+                }
+                
+                if (SupabaseLib && SupabaseLib.createClient) {
+                    supabaseClient = SupabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    window.supabase = supabaseClient; // Expõe globalmente
+                    console.log('✅ Supabase inicializado com sucesso');
+                } else {
+                    console.error('❌ Biblioteca do Supabase não encontrada. Verifique o console para mais detalhes.');
+                    console.log('Variáveis globais disponíveis:', Object.keys(window).filter(k => k.toLowerCase().includes('supabase')));
+                }
+            } catch (error) {
+                console.error('❌ Erro ao inicializar Supabase:', error);
+            }
+        };
+    </script>
+    <!-- Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onload="initSupabaseClient()"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="auth-container">
+            <div class="auth-header">
+                <h1>💬 Bate-Papo</h1>
+                <p>Conecte-se e converse com pessoas de todo o Brasil</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Entrar</button>
+                <button class="tab-btn" data-tab="register">Cadastrar</button>
+            </div>
+
+            <!-- Formulário de Login -->
+            <form id="loginForm" class="auth-form active">
+                <div class="form-group">
+                    <label for="loginEmail">E-mail</label>
+                    <input type="email" id="loginEmail" required placeholder="seu@email.com">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Senha</label>
+                    <input type="password" id="loginPassword" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn btn-primary">Entrar</button>
+            </form>
+
+            <!-- Formulário de Cadastro -->
+            <form id="registerForm" class="auth-form">
+                <div class="form-group">
+                    <label for="registerNickname">Apelido</label>
+                    <input type="text" id="registerNickname" required placeholder="Seu apelido">
+                </div>
+                <div class="form-group">
+                    <label for="registerEmail">E-mail</label>
+                    <input type="email" id="registerEmail" required placeholder="seu@email.com">
+                </div>
+                <div class="form-group">
+                    <label for="registerPassword">Senha</label>
+                    <input type="password" id="registerPassword" required placeholder="••••••••" minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="registerCity">Cidade</label>
+                    <select id="registerCity" required>
+                        <option value="">Selecione sua cidade</option>
+                        <option value="São Paulo">São Paulo</option>
+                        <option value="Guarulhos">Guarulhos</option>
+                        <option value="Campinas">Campinas</option>
+                        <option value="São Bernardo do Campo">São Bernardo do Campo</option>
+                        <option value="Santo André">Santo André</option>
+                        <option value="Osasco">Osasco</option>
+                        <option value="Ribeirão Preto">Ribeirão Preto</option>
+                        <option value="Sorocaba">Sorocaba</option>
+                        <option value="Mauá">Mauá</option>
+                        <option value="São José dos Campos">São José dos Campos</option>
+                        <option value="Mogi das Cruzes">Mogi das Cruzes</option>
+                        <option value="Santos">Santos</option>
+                        <option value="Diadema">Diadema</option>
+                        <option value="Jundiaí">Jundiaí</option>
+                        <option value="Piracicaba">Piracicaba</option>
+                        <option value="Carapicuíba">Carapicuíba</option>
+                        <option value="Bauru">Bauru</option>
+                        <option value="Itaquaquecetuba">Itaquaquecetuba</option>
+                        <option value="São Vicente">São Vicente</option>
+                        <option value="Franca">Franca</option>
+                        <option value="Praia Grande">Praia Grande</option>
+                        <option value="Guarujá">Guarujá</option>
+                        <option value="Taubaté">Taubaté</option>
+                        <option value="Limeira">Limeira</option>
+                        <option value="Suzano">Suzano</option>
+                        <option value="Barueri">Barueri</option>
+                        <option value="Taboão da Serra">Taboão da Serra</option>
+                        <option value="Sumaré">Sumaré</option>
+                        <option value="Embu das Artes">Embu das Artes</option>
+                        <option value="São Caetano do Sul">São Caetano do Sul</option>
+                        <option value="Americana">Americana</option>
+                        <option value="Araraquara">Araraquara</option>
+                        <option value="Indaiatuba">Indaiatuba</option>
+                        <option value="Cotia">Cotia</option>
+                        <option value="São José do Rio Preto">São José do Rio Preto</option>
+                        <option value="Jacareí">Jacareí</option>
+                        <option value="Hortolândia">Hortolândia</option>
+                        <option value="Rio Claro">Rio Claro</option>
+                        <option value="Araçatuba">Araçatuba</option>
+                        <option value="Santa Bárbara d'Oeste">Santa Bárbara d'Oeste</option>
+                        <option value="Ferraz de Vasconcelos">Ferraz de Vasconcelos</option>
+                        <option value="Francisco Morato">Francisco Morato</option>
+                        <option value="Itapecerica da Serra">Itapecerica da Serra</option>
+                        <option value="Itu">Itu</option>
+                        <option value="Bragança Paulista">Bragança Paulista</option>
+                        <option value="Pindamonhangaba">Pindamonhangaba</option>
+                        <option value="Itapetininga">Itapetininga</option>
+                        <option value="São Carlos">São Carlos</option>
+                        <option value="Caieiras">Caieiras</option>
+                        <option value="Mogi Guaçu">Mogi Guaçu</option>
+                        <option value="Franco da Rocha">Franco da Rocha</option>
+                        <option value="Marília">Marília</option>
+                        <option value="Presidente Prudente">Presidente Prudente</option>
+                        <option value="Botucatu">Botucatu</option>
+                        <option value="Jaú">Jaú</option>
+                        <option value="Atibaia">Atibaia</option>
+                        <option value="Sertãozinho">Sertãozinho</option>
+                        <option value="Barretos">Barretos</option>
+                        <option value="Valinhos">Valinhos</option>
+                        <option value="Votorantim">Votorantim</option>
+                        <option value="Tatuí">Tatuí</option>
+                        <option value="Várzea Paulista">Várzea Paulista</option>
+                        <option value="Birigui">Birigui</option>
+                        <option value="Salto">Salto</option>
+                        <option value="Caraguatatuba">Caraguatatuba</option>
+                        <option value="Catanduva">Catanduva</option>
+                        <option value="Leme">Leme</option>
+                        <option value="Assis">Assis</option>
+                        <option value="Itatiba">Itatiba</option>
+                        <option value="Ourinhos">Ourinhos</option>
+                        <option value="Avaré">Avaré</option>
+                        <option value="Mogi Mirim">Mogi Mirim</option>
+                        <option value="Tupã">Tupã</option>
+                        <option value="Jaboticabal">Jaboticabal</option>
+                        <option value="Lins">Lins</option>
+                        <option value="Votuporanga">Votuporanga</option>
+                        <option value="Registro">Registro</option>
+                        <option value="São Roque">São Roque</option>
+                        <option value="Itapira">Itapira</option>
+                        <option value="Penápolis">Penápolis</option>
+                        <option value="Batatais">Batatais</option>
+                        <option value="Arujá">Arujá</option>
+                        <option value="Mairiporã">Mairiporã</option>
+                        <option value="Cubatão">Cubatão</option>
+                        <option value="Santo Antônio de Posse">Santo Antônio de Posse</option>
+                        <option value="Poá">Poá</option>
+                        <option value="São Sebastião">São Sebastião</option>
+                        <option value="Vinhedo">Vinhedo</option>
+                        <option value="Jaguariúna">Jaguariúna</option>
+                        <option value="Paulínia">Paulínia</option>
+                        <option value="Mongaguá">Mongaguá</option>
+                        <option value="Itanhaém">Itanhaém</option>
+                        <option value="Peruíbe">Peruíbe</option>
+                        <option value="Ubatuba">Ubatuba</option>
+                        <option value="Ilhabela">Ilhabela</option>
+                        <option value="Campos do Jordão">Campos do Jordão</option>
+                        <option value="Guararema">Guararema</option>
+                        <option value="Salesópolis">Salesópolis</option>
+                        <option value="Biritiba Mirim">Biritiba Mirim</option>
+                        <option value="Santa Isabel">Santa Isabel</option>
+                        <option value="Bertioga">Bertioga</option>
+                        <option value="Outra">Outra</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Cadastrar</button>
+            </form>
+
+            <div id="errorMessage" class="error-message"></div>
+        </div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script src="supabase-service.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
