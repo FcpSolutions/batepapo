@@ -732,9 +732,11 @@ class SupabaseService {
 
     async uploadMedia(file, userId, messageId) {
         try {
+            this.checkReady();
+            
             const fileExt = file.name.split('.').pop();
-            const fileName = `${userId}/${messageId}.${fileExt}`;
-            const filePath = `media/${fileName}`;
+            // O caminho é apenas userId/messageId.ext (sem o prefixo 'media/' porque já estamos no bucket 'media')
+            const filePath = `${userId}/${messageId}.${fileExt}`;
 
             const { data, error } = await this.client.storage
                 .from('media')
@@ -743,7 +745,10 @@ class SupabaseService {
                     upsert: false
                 });
 
-            if (error) throw error;
+            if (error) {
+                console.error('Erro detalhado ao fazer upload:', error);
+                throw error;
+            }
 
             // Obtém URL pública
             const { data: urlData } = this.client.storage
