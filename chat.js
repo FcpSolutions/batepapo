@@ -179,9 +179,7 @@ class ChatManager {
         });
 
         // Botões de aceitar/recusar vídeo chamada
-        const acceptCallBtn = document.getElementById('acceptCallBtn');
-        const rejectCallBtn = document.getElementById('rejectCallBtn');
-        
+        // (acceptCallBtn e rejectCallBtn já foram declarados no início da função)
         if (acceptCallBtn) {
             acceptCallBtn.addEventListener('click', () => {
                 this.acceptVideoCall();
