@@ -13,6 +13,8 @@ class ChatManager {
         this.lastUsersList = null; // Armazena o estado anterior da lista de usuários para evitar re-renderizações desnecessárias
         this.lastMessagesList = null; // Armazena o estado anterior das mensagens para evitar re-renderizações desnecessárias
         this.isLoadingMessages = false; // Flag para evitar atualizações simultâneas
+        this.messageChannel = null; // Canal Realtime para mensagens
+        this.profileChannel = null; // Canal Realtime para perfis
         this.init();
     }
 
@@ -44,7 +46,10 @@ class ChatManager {
         // Inicia monitoramento de inatividade
         this.startInactivityMonitoring();
 
-        // Atualiza periodicamente
+        // Inicia Realtime (atualizações em tempo real)
+        this.initRealtime();
+        
+        // Atualiza periodicamente apenas como fallback (muito menos frequente)
         this.startPeriodicUpdates();
     }
 
@@ -370,6 +375,9 @@ class ChatManager {
             if (this.inactivityTimeout) {
                 clearTimeout(this.inactivityTimeout);
             }
+
+            // Desinscreve-se dos canais Realtime
+            this.cleanupRealtime();
 
             // Faz logout no Supabase para limpar a sessão
             if (service && service.isReady()) {
@@ -1180,9 +1188,50 @@ class ChatManager {
         });
     }
 
+    cleanupRealtime() {
+        // Desinscreve-se dos canais Realtime
+        const service = window.supabaseService || supabaseService;
+        if (service && service.isReady()) {
+            try {
+                if (this.messageChannel) {
+                    service.unsubscribe(this.messageChannel);
+                    this.messageChannel = null;
+                }
+                if (this.profileChannel) {
+                    service.unsubscribe(this.profileChannel);
+                    this.profileChannel = null;
+                }
+            } catch (error) {
+                console.error('Erro ao desinscrever-se do Realtime:', error);
+            }
+        }
+    }
+
+    cleanupRealtime() {
+        // Desinscreve-se dos canais Realtime
+        const service = window.supabaseService || supabaseService;
+        if (service && service.isReady()) {
+            try {
+                if (this.messageChannel) {
+                    service.unsubscribe(this.messageChannel);
+                    this.messageChannel = null;
+                }
+                if (this.profileChannel) {
+                    service.unsubscribe(this.profileChannel);
+                    this.profileChannel = null;
+                }
+            } catch (error) {
+                console.error('Erro ao desinscrever-se do Realtime:', error);
+            }
+        }
+    }
+
     setupBeforeUnload() {
         // Marca o usuário como offline quando a página/janela for fechada
         window.addEventListener('beforeunload', () => {
+            // Desinscreve-se do Realtime
+            this.cleanupRealtime();
+            
             const userId = this.currentUser ? this.currentUser.id : null;
             if (userId) {
                 const service = window.supabaseService || supabaseService;
@@ -1197,18 +1246,139 @@ class ChatManager {
         });
     }
 
-    startPeriodicUpdates() {
-        // Atualiza mensagens periodicamente (menos frequente para evitar piscar)
-        // Usa Supabase diretamente, não localStorage
-        setInterval(() => {
-            // Não força atualização, só atualiza se houver mudanças
-            this.loadMessages(false);
-        }, 3000); // Aumentado para 3 segundos para reduzir piscar
+    initRealtime() {
+        const service = window.supabaseService || supabaseService;
+        if (!service || !service.isReady()) {
+            // Tenta novamente após um delay
+            setTimeout(() => this.initRealtime(), 1000);
+            return;
+        }
 
-        // Atualiza lista de usuários com menos frequência (5 segundos)
+        try {
+            // Inscreve-se em novas mensagens
+            this.messageChannel = service.subscribeToMessages((payload) => {
+                if (payload.eventType === 'INSERT') {
+                    this.handleNewMessage(payload.new);
+                }
+            });
+
+            // Inscreve-se em atualizações de perfis (usuários online)
+            this.profileChannel = service.subscribeToProfiles((payload) => {
+                if (payload.eventType === 'UPDATE') {
+                    // Atualiza lista de usuários quando há mudança de atividade
+                    this.loadOnlineUsers(false);
+                }
+            });
+
+            console.log('✅ Realtime conectado - mensagens em tempo real ativadas');
+        } catch (error) {
+            console.error('Erro ao inicializar Realtime:', error);
+        }
+    }
+
+    async handleNewMessage(newMessage) {
+        // O payload do Realtime pode vir em diferentes formatos
+        // Precisamos buscar o perfil do usuário se não vier no payload
+        let nickname = 'Usuário';
+        let city = '';
+        
+        if (newMessage.profiles) {
+            nickname = newMessage.profiles.nickname || 'Usuário';
+            city = newMessage.profiles.city || '';
+        } else {
+            // Se não vier o perfil, busca do Supabase
+            try {
+                const service = window.supabaseService || supabaseService;
+                if (service && service.isReady()) {
+                    const { data } = await service.client
+                        .from('profiles')
+                        .select('nickname, city')
+                        .eq('id', newMessage.user_id)
+                        .single();
+                    if (data) {
+                        nickname = data.nickname || 'Usuário';
+                        city = data.city || '';
+                    }
+                }
+            } catch (error) {
+                console.warn('Erro ao buscar perfil da mensagem:', error);
+            }
+        }
+
+        // Formata a mensagem para o formato esperado
+        const formattedMessage = {
+            id: newMessage.id,
+            userId: newMessage.user_id,
+            nickname: nickname,
+            city: city,
+            content: newMessage.content,
+            type: newMessage.type,
+            mediaType: newMessage.media_type,
+            mediaData: newMessage.media_url,
+            recipientId: newMessage.recipient_id,
+            timestamp: newMessage.created_at
+        };
+
+        // Verifica se a mensagem é relevante para o usuário atual
+        if (!this.shouldDisplayMessage(formattedMessage)) {
+            return; // Ignora mensagens não relevantes
+        }
+
+        // Verifica se a mensagem já existe (evita duplicatas)
+        const messageExists = this.messages.some(m => m.id === formattedMessage.id);
+        if (messageExists) {
+            return; // Mensagem já existe, não adiciona novamente
+        }
+
+        // Adiciona a mensagem à lista
+        this.messages.push(formattedMessage);
+
+        // Exibe a mensagem na interface (sem recriar toda a lista)
+        this.displayMessage(formattedMessage);
+
+        // Atualiza o estado para comparação
+        if (this.lastMessagesList) {
+            this.lastMessagesList.push({ id: formattedMessage.id });
+        }
+
+        // Scroll para a nova mensagem
+        this.scrollToBottom();
+    }
+
+    shouldDisplayMessage(message) {
+        // Filtra mensagens de usuários bloqueados
+        if (this.blockedUsers.includes(message.userId)) {
+            return false;
+        }
+
+        // Filtra por tipo de chat
+        if (this.chatMode === 'public') {
+            return message.type === 'public';
+        } else if (this.chatMode === 'private') {
+            if (message.type !== 'private') return false;
+            const isFromMe = message.userId === this.currentUser.id;
+            const isToMe = message.recipientId === this.currentUser.id;
+            const isFromThem = message.userId === this.privateChatWith;
+            const isToThem = message.recipientId === this.privateChatWith;
+            return (isFromMe && isToThem) || (isFromThem && isToMe);
+        }
+        return false;
+    }
+
+    startPeriodicUpdates() {
+        // Atualiza mensagens periodicamente apenas como fallback (muito menos frequente)
+        // O Realtime deve fazer a maior parte do trabalho
+        setInterval(() => {
+            // Só atualiza se Realtime não estiver funcionando
+            if (!this.messageChannel) {
+                this.loadMessages(false);
+            }
+        }, 30000); // 30 segundos - apenas como fallback
+
+        // Atualiza lista de usuários com menos frequência (10 segundos)
         setInterval(() => {
             this.loadOnlineUsers(false); // false = não força atualização, só atualiza se houver mudanças
-        }, 5000);
+        }, 10000);
     }
 
     escapeHtml(text) {

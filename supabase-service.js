@@ -494,6 +494,7 @@ class SupabaseService {
 
     async getPublicMessages(limit = 100) {
         try {
+            this.checkReady();
             const { data, error } = await this.client
                 .from('messages')
                 .select(`
@@ -527,6 +528,7 @@ class SupabaseService {
 
     async getPrivateMessages(userId, otherUserId, limit = 100) {
         try {
+            this.checkReady();
             // Busca mensagens onde userId é remetente e otherUserId é destinatário
             const { data: sentMessages, error: sentError } = await this.client
                 .from('messages')
@@ -783,13 +785,28 @@ class SupabaseService {
     // ========== REALTIME ==========
 
     subscribeToMessages(callback) {
-        return this.client
-            .channel('messages')
-            .on('postgres_changes', 
-                { event: 'INSERT', schema: 'public', table: 'messages' },
-                callback
-            )
-            .subscribe();
+        try {
+            this.checkReady();
+            const channel = this.client
+                .channel('messages-channel', {
+                    config: {
+                        broadcast: { self: true }
+                    }
+                })
+                .on('postgres_changes', 
+                    { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'messages' 
+                    },
+                    callback
+                )
+                .subscribe();
+            return channel;
+        } catch (error) {
+            console.error('Erro ao inscrever-se em mensagens:', error);
+            return null;
+        }
     }
 
     subscribeToProfiles(callback) {
