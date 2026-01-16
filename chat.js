@@ -960,6 +960,12 @@ class ChatManager {
             return;
         }
 
+        // Verifica se o usuário está logado
+        if (!this.currentUser || !this.currentUser.id) {
+            alert('Você precisa estar logado para fazer vídeo chamada. Faça login novamente.');
+            return;
+        }
+
         try {
             const service = window.supabaseService || supabaseService;
             if (!service || !service.isReady()) {
@@ -1435,12 +1441,19 @@ class ChatManager {
         try {
             // Inscreve-se em convites de vídeo chamada
             this.videoCallInviteChannel = service.subscribeToVideoCallInvites((payload) => {
-                if (payload.eventType === 'INSERT') {
+                console.log('📡 Payload recebido do Realtime:', payload);
+                console.log('📋 Event Type:', payload.eventType);
+                
+                if (payload.eventType === 'INSERT' || payload.eventType === 'insert') {
                     // Novo convite recebido
+                    console.log('➕ Novo convite detectado:', payload.new);
                     this.handleIncomingVideoCallInvite(payload.new);
-                } else if (payload.eventType === 'UPDATE') {
+                } else if (payload.eventType === 'UPDATE' || payload.eventType === 'update') {
                     // Convite foi aceito/recusado/cancelado
+                    console.log('🔄 Convite atualizado:', payload.new);
                     this.handleVideoCallInviteUpdate(payload.new);
+                } else {
+                    console.log('❓ Event type desconhecido:', payload.eventType);
                 }
             });
 
@@ -1469,9 +1482,21 @@ class ChatManager {
     }
 
     handleIncomingVideoCallInvite(invite) {
+        console.log('📞 Convite recebido via Realtime:', invite);
+        console.log('👤 Usuário atual:', this.currentUser?.id);
+        console.log('📨 Recipient ID do convite:', invite.recipient_id);
+        
         // Verifica se o convite é para o usuário atual
+        if (!this.currentUser || !this.currentUser.id) {
+            console.warn('⚠️ Usuário atual não está definido');
+            return;
+        }
+        
         if (invite.recipient_id === this.currentUser.id && invite.status === 'pending') {
+            console.log('✅ Convite é para este usuário, mostrando modal...');
             this.showVideoCallInviteModal(invite);
+        } else {
+            console.log('ℹ️ Convite não é para este usuário ou não está pendente');
         }
     }
 

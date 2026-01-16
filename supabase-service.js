@@ -797,14 +797,41 @@ class SupabaseService {
     async createVideoCallInvite(recipientId) {
         try {
             this.checkReady();
-            const { data: { user } } = await this.client.auth.getUser();
-            if (!user) throw new Error('Usuário não autenticado');
+            
+            // Tenta obter o usuário de várias formas
+            let userId = null;
+            
+            // Método 1: Tenta auth.getUser()
+            try {
+                const { data: { user }, error } = await this.client.auth.getUser();
+                if (!error && user) {
+                    userId = user.id;
+                }
+            } catch (error) {
+                console.warn('Erro ao obter usuário via auth.getUser():', error);
+            }
+            
+            // Método 2: Tenta auth.getSession() como fallback
+            if (!userId) {
+                try {
+                    const { data: { session }, error } = await this.client.auth.getSession();
+                    if (!error && session && session.user) {
+                        userId = session.user.id;
+                    }
+                } catch (error) {
+                    console.warn('Erro ao obter sessão via auth.getSession():', error);
+                }
+            }
+            
+            if (!userId) {
+                throw new Error('Usuário não autenticado. Faça login novamente.');
+            }
 
             // Cancela convites pendentes anteriores
             await this.client
                 .from('video_call_invites')
                 .update({ status: 'cancelled' })
-                .eq('caller_id', user.id)
+                .eq('caller_id', userId)
                 .eq('recipient_id', recipientId)
                 .eq('status', 'pending');
 
@@ -812,7 +839,7 @@ class SupabaseService {
             const { data, error } = await this.client
                 .from('video_call_invites')
                 .insert({
-                    caller_id: user.id,
+                    caller_id: userId,
                     recipient_id: recipientId,
                     status: 'pending'
                 })
@@ -958,6 +985,47 @@ class SupabaseService {
                 callback
             )
             .subscribe();
+    }
+
+    subscribeToVideoCallInvites(callback) {
+        try {
+            this.checkReady();
+            console.log('🔔 Inscrito em convites de vídeo chamada...');
+            const channel = this.client
+                .channel('video-call-invites-channel', {
+                    config: {
+                        broadcast: { self: true }
+                    }
+                })
+                .on('postgres_changes', 
+                    { 
+                        event: '*', 
+                        schema: 'public', 
+                        table: 'video_call_invites' 
+                    },
+                    (payload) => {
+                        console.log('📨 Payload do Realtime recebido:', payload);
+                        // Normaliza o eventType para garantir compatibilidade
+                        const normalizedPayload = {
+                            ...payload,
+                            eventType: payload.eventType || payload.event || 'UNKNOWN'
+                        };
+                        callback(normalizedPayload);
+                    }
+                )
+                .subscribe((status) => {
+                    console.log('📡 Status da inscrição em convites:', status);
+                    if (status === 'SUBSCRIBED') {
+                        console.log('✅ Inscrito com sucesso em convites de vídeo chamada');
+                    } else if (status === 'CHANNEL_ERROR') {
+                        console.error('❌ Erro ao se inscrever em convites de vídeo chamada');
+                    }
+                });
+            return channel;
+        } catch (error) {
+            console.error('Erro ao inscrever-se em convites de vídeo chamada:', error);
+            return null;
+        }
     }
 
     unsubscribe(channel) {
