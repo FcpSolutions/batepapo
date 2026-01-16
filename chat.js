@@ -420,7 +420,7 @@ class ChatManager {
         }
     }
 
-    sendMessage(content = null, mediaType = null, mediaData = null) {
+    async sendMessage(content = null, mediaType = null, mediaData = null) {
         const messageInput = document.getElementById('messageInput');
         const textContent = content || messageInput.value.trim();
 
@@ -432,33 +432,102 @@ class ChatManager {
             console.warn('Erro ao atualizar atividade:', err);
         });
 
-        const message = {
-            id: Date.now().toString(),
-            userId: this.currentUser.id,
-            nickname: this.currentUser.nickname,
-            city: this.currentUser.city,
-            content: textContent || '',
-            timestamp: new Date().toISOString(),
-            type: this.chatMode, // 'public' ou 'private'
-            recipientId: this.chatMode === 'private' ? this.privateChatWith : null,
-            mediaType: mediaType, // 'image' ou 'video'
-            mediaData: mediaData // Base64 ou URL
-        };
+        try {
+            const service = window.supabaseService || supabaseService;
+            let mediaUrl = null;
 
-        this.messages.push(message);
-        localStorage.setItem('chatMessages', JSON.stringify(this.messages));
+            // Se houver mídia, faz upload primeiro
+            if (mediaData && mediaType) {
+                try {
+                    // Converte base64 para File se necessário
+                    const file = await this.base64ToFile(mediaData, mediaType);
+                    const messageId = Date.now().toString();
+                    mediaUrl = await service.uploadMedia(file, this.currentUser.id, messageId);
+                } catch (mediaError) {
+                    console.error('Erro ao fazer upload de mídia:', mediaError);
+                    alert('Erro ao enviar mídia. Tente novamente.');
+                    return;
+                }
+            }
 
-        this.displayMessage(message);
-        if (!content) {
-            messageInput.value = '';
-            messageInput.focus();
+            // Prepara os dados da mensagem para o Supabase
+            const messageData = {
+                user_id: this.currentUser.id,
+                recipient_id: this.chatMode === 'private' ? this.privateChatWith : null,
+                content: textContent || null,
+                type: this.chatMode,
+                media_type: mediaType || null,
+                media_url: mediaUrl || null
+            };
+
+            // Envia mensagem para o Supabase
+            if (service && service.isReady()) {
+                const savedMessage = await service.sendMessage(messageData);
+                
+                // Adiciona à lista local para exibição imediata
+                this.messages.push(savedMessage);
+                
+                // Exibe a mensagem na interface
+                this.displayMessage(savedMessage);
+            } else {
+                // Fallback para localStorage se Supabase não estiver pronto
+                const message = {
+                    id: Date.now().toString(),
+                    userId: this.currentUser.id,
+                    nickname: this.currentUser.nickname,
+                    city: this.currentUser.city,
+                    content: textContent || '',
+                    timestamp: new Date().toISOString(),
+                    type: this.chatMode,
+                    recipientId: this.chatMode === 'private' ? this.privateChatWith : null,
+                    mediaType: mediaType,
+                    mediaData: mediaData
+                };
+
+                this.messages.push(message);
+                localStorage.setItem('chatMessages', JSON.stringify(this.messages));
+                this.displayMessage(message);
+            }
+
+            // Limpa o input se não foi passado conteúdo
+            if (!content) {
+                messageInput.value = '';
+                messageInput.focus();
+            }
+
+            // Limita o número de mensagens armazenadas localmente (últimas 500)
+            if (this.messages.length > 500) {
+                this.messages = this.messages.slice(-500);
+                localStorage.setItem('chatMessages', JSON.stringify(this.messages));
+            }
+        } catch (error) {
+            console.error('Erro ao enviar mensagem:', error);
+            alert('Erro ao enviar mensagem. Tente novamente.');
         }
+    }
 
-        // Limita o número de mensagens armazenadas (últimas 500)
-        if (this.messages.length > 500) {
-            this.messages = this.messages.slice(-500);
-            localStorage.setItem('chatMessages', JSON.stringify(this.messages));
+    async base64ToFile(base64, mediaType) {
+        // Converte base64 para File
+        // Remove o prefixo data:image/...;base64, se existir
+        const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+        
+        // Converte base64 para blob
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], {
+            type: mediaType === 'image' ? 'image/jpeg' : 'video/mp4'
+        });
+        
+        // Cria File a partir do Blob
+        const file = new File([blob], `media.${mediaType === 'image' ? 'jpg' : 'mp4'}`, {
+            type: mediaType === 'image' ? 'image/jpeg' : 'video/mp4'
+        });
+        
+        return file;
     }
 
     handleFileUpload(file, mediaType) {

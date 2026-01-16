@@ -457,6 +457,8 @@ class SupabaseService {
 
     async sendMessage(messageData) {
         try {
+            this.checkReady();
+            
             const { data, error } = await this.client
                 .from('messages')
                 .insert([messageData])
@@ -466,7 +468,10 @@ class SupabaseService {
                 `)
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                console.error('Erro ao inserir mensagem no Supabase:', error);
+                throw error;
+            }
             
             // Formata os dados para compatibilidade
             return {
