@@ -763,10 +763,25 @@ class ChatManager {
 
         // Conteúdo de mídia
         let mediaContent = '';
-        if (message.mediaType === 'image' && message.mediaData) {
-            mediaContent = `<div class="message-media"><img src="${message.mediaData}" alt="Imagem enviada" class="message-image"></div>`;
-        } else if (message.mediaType === 'video' && message.mediaData) {
-            mediaContent = `<div class="message-media"><video controls class="message-video"><source src="${message.mediaData}" type="video/mp4">Seu navegador não suporta vídeo.</video></div>`;
+        // Usa mediaData ou media_url (para compatibilidade com mensagens do banco)
+        const mediaUrl = message.mediaData || message.media_url;
+        
+        if (message.mediaType === 'image' && mediaUrl) {
+            // Escapa a URL para evitar problemas com caracteres especiais
+            const imageUrl = this.escapeHtml(mediaUrl);
+            mediaContent = `<div class="message-media">
+                <img src="${imageUrl}" alt="Imagem enviada" class="message-image" 
+                     onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%23ddd\' width=\'200\' height=\'200\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'14\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\'%3EErro ao carregar imagem%3C/text%3E%3C/svg%3E'; this.style.cursor='default';"
+                     loading="lazy">
+            </div>`;
+        } else if (message.mediaType === 'video' && mediaUrl) {
+            const videoUrl = this.escapeHtml(mediaUrl);
+            mediaContent = `<div class="message-media">
+                <video controls class="message-video" preload="metadata">
+                    <source src="${videoUrl}" type="video/mp4">
+                    Seu navegador não suporta vídeo.
+                </video>
+            </div>`;
         }
 
         const textContent = message.content ? `<div class="message-content">${this.escapeHtml(message.content)}</div>` : '';
@@ -788,9 +803,13 @@ class ChatManager {
         if (message.mediaType === 'image') {
             const img = messageDiv.querySelector('.message-image');
             if (img) {
-                img.addEventListener('click', () => {
-                    this.showImageModal(message.mediaData);
-                });
+                // Usa mediaData ou media_url (para compatibilidade)
+                const imageUrl = message.mediaData || message.media_url;
+                if (imageUrl) {
+                    img.addEventListener('click', () => {
+                        this.showImageModal(imageUrl);
+                    });
+                }
             }
         }
         
@@ -798,6 +817,12 @@ class ChatManager {
     }
 
     showImageModal(imageSrc) {
+        // Remove modal anterior se existir
+        const existingModal = document.querySelector('.image-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
         const modal = document.createElement('div');
         modal.className = 'image-modal';
         modal.style.cssText = `
@@ -806,7 +831,7 @@ class ChatManager {
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.9);
+            background: rgba(0, 0, 0, 0.95);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -814,21 +839,99 @@ class ChatManager {
             cursor: pointer;
         `;
         
+        const imgContainer = document.createElement('div');
+        imgContainer.style.cssText = `
+            position: relative;
+            max-width: 95%;
+            max-height: 95%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        `;
+        
         const img = document.createElement('img');
         img.src = imageSrc;
         img.style.cssText = `
-            max-width: 90%;
-            max-height: 90%;
+            max-width: 100%;
+            max-height: 90vh;
             border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            object-fit: contain;
         `;
         
-        modal.appendChild(img);
+        // Tratamento de erro de carregamento
+        img.onerror = function() {
+            this.style.display = 'none';
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = `
+                color: white;
+                text-align: center;
+                padding: 20px;
+                font-size: 1.2em;
+            `;
+            errorDiv.textContent = 'Erro ao carregar imagem';
+            imgContainer.appendChild(errorDiv);
+        };
+        
+        // Botão de fechar
+        const closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '✕';
+        closeBtn.style.cssText = `
+            position: absolute;
+            top: -40px;
+            right: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        `;
+        closeBtn.onmouseover = function() {
+            this.style.background = 'rgba(255, 255, 255, 0.3)';
+        };
+        closeBtn.onmouseout = function() {
+            this.style.background = 'rgba(255, 255, 255, 0.2)';
+        };
+        
+        imgContainer.appendChild(img);
+        imgContainer.appendChild(closeBtn);
+        modal.appendChild(imgContainer);
         document.body.appendChild(modal);
         
-        modal.addEventListener('click', () => {
-            document.body.removeChild(modal);
+        // Fecha ao clicar no modal ou no botão de fechar
+        const closeModal = () => {
+            if (modal.parentNode) {
+                modal.parentNode.removeChild(modal);
+            }
+        };
+        
+        modal.addEventListener('click', (e) => {
+            // Só fecha se clicar no fundo, não na imagem
+            if (e.target === modal) {
+                closeModal();
+            }
         });
+        
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeModal();
+        });
+        
+        // Fecha com ESC
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
     }
 
     startVideoCall() {
@@ -1186,25 +1289,6 @@ class ChatManager {
                 this.loadOnlineUsers(true); // Força atualização quando há mudança no storage
             }
         });
-    }
-
-    cleanupRealtime() {
-        // Desinscreve-se dos canais Realtime
-        const service = window.supabaseService || supabaseService;
-        if (service && service.isReady()) {
-            try {
-                if (this.messageChannel) {
-                    service.unsubscribe(this.messageChannel);
-                    this.messageChannel = null;
-                }
-                if (this.profileChannel) {
-                    service.unsubscribe(this.profileChannel);
-                    this.profileChannel = null;
-                }
-            } catch (error) {
-                console.error('Erro ao desinscrever-se do Realtime:', error);
-            }
-        }
     }
 
     cleanupRealtime() {

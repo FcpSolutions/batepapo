@@ -750,11 +750,16 @@ class SupabaseService {
                 throw error;
             }
 
-            // Obtém URL pública
+            // Verifica se o bucket é público ou privado
+            // Tenta obter URL pública primeiro
             const { data: urlData } = this.client.storage
                 .from('media')
                 .getPublicUrl(filePath);
-
+            
+            // Se o bucket for público, a URL pública funciona
+            // Se for privado, precisamos usar signed URL
+            // Por padrão, vamos usar URL pública (assumindo bucket público)
+            // Se não funcionar, o usuário precisa tornar o bucket público ou usar signed URLs
             return urlData.publicUrl;
         } catch (error) {
             console.error('Erro ao fazer upload de mídia:', error);
