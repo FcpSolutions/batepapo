@@ -1501,19 +1501,74 @@ class ChatManager {
     }
 
     handleVideoCallInviteUpdate(invite) {
-        // Se o convite foi aceito e o usuário atual é quem chamou
-        if (invite.caller_id === this.currentUser.id && invite.status === 'accepted') {
-            const status = document.getElementById('videoCallStatus');
-            if (status) {
-                status.textContent = 'Conectado';
-                status.style.color = '#4caf50';
+        console.log('🔄 Convite atualizado:', invite);
+        console.log('👤 Usuário atual:', this.currentUser?.id);
+        console.log('📞 Caller ID:', invite.caller_id);
+        console.log('📨 Recipient ID:', invite.recipient_id);
+        console.log('📊 Status:', invite.status);
+        
+        if (!this.currentUser || !this.currentUser.id) {
+            console.warn('⚠️ Usuário atual não está definido');
+            return;
+        }
+        
+        // Se o convite foi aceito
+        if (invite.status === 'accepted') {
+            // Se o usuário atual é quem chamou
+            if (invite.caller_id === this.currentUser.id) {
+                console.log('✅ Convite aceito - atualizando status para quem chamou');
+                const status = document.getElementById('videoCallStatus');
+                if (status) {
+                    status.textContent = 'Conectado';
+                    status.style.color = '#4caf50';
+                }
+                // Garante que o modal de vídeo chamada está aberto
+                const videoCallModal = document.getElementById('videoCallModal');
+                if (videoCallModal && videoCallModal.style.display === 'none') {
+                    videoCallModal.style.display = 'flex';
+                }
             }
-        } else if (invite.recipient_id === this.currentUser.id && invite.status === 'rejected') {
-            // Convite foi recusado
-            this.hideVideoCallInviteModal();
-        } else if (invite.status === 'cancelled') {
-            // Convite foi cancelado
-            this.hideVideoCallInviteModal();
+            // Se o usuário atual é quem aceitou, o modal já foi aberto em acceptVideoCall()
+            // Mas vamos garantir que está aberto
+            else if (invite.recipient_id === this.currentUser.id) {
+                console.log('✅ Convite aceito - garantindo que modal está aberto para quem aceitou');
+                const videoCallModal = document.getElementById('videoCallModal');
+                const status = document.getElementById('videoCallStatus');
+                if (videoCallModal) {
+                    videoCallModal.style.display = 'flex';
+                }
+                if (status) {
+                    status.textContent = 'Conectado';
+                    status.style.color = '#4caf50';
+                }
+            }
+        } 
+        // Se o convite foi recusado
+        else if (invite.status === 'rejected') {
+            if (invite.recipient_id === this.currentUser.id) {
+                // Quem recusou - fecha modal de convite
+                this.hideVideoCallInviteModal();
+            } else if (invite.caller_id === this.currentUser.id) {
+                // Quem chamou - fecha modal de vídeo chamada
+                const videoCallModal = document.getElementById('videoCallModal');
+                if (videoCallModal) {
+                    videoCallModal.style.display = 'none';
+                }
+                alert('A chamada foi recusada.');
+            }
+        } 
+        // Se o convite foi cancelado
+        else if (invite.status === 'cancelled') {
+            if (invite.recipient_id === this.currentUser.id) {
+                // Quem recebeu - fecha modal de convite
+                this.hideVideoCallInviteModal();
+            } else if (invite.caller_id === this.currentUser.id) {
+                // Quem chamou - fecha modal de vídeo chamada
+                const videoCallModal = document.getElementById('videoCallModal');
+                if (videoCallModal) {
+                    videoCallModal.style.display = 'none';
+                }
+            }
         }
     }
 
@@ -1553,7 +1608,12 @@ class ChatManager {
     }
 
     async acceptVideoCall() {
-        if (!this.currentIncomingVideoCallInviteId) return;
+        if (!this.currentIncomingVideoCallInviteId) {
+            console.warn('⚠️ Nenhum convite para aceitar');
+            return;
+        }
+
+        console.log('✅ Aceitando convite:', this.currentIncomingVideoCallInviteId);
 
         try {
             const service = window.supabaseService || supabaseService;
@@ -1563,7 +1623,8 @@ class ChatManager {
             }
 
             // Aceita o convite
-            await service.acceptVideoCallInvite(this.currentIncomingVideoCallInviteId);
+            const acceptedInvite = await service.acceptVideoCallInvite(this.currentIncomingVideoCallInviteId);
+            console.log('✅ Convite aceito com sucesso:', acceptedInvite);
 
             // Esconde o modal de convite
             this.hideVideoCallInviteModal();
@@ -1571,9 +1632,16 @@ class ChatManager {
             // Mostra o modal de vídeo chamada
             const videoCallModal = document.getElementById('videoCallModal');
             const status = document.getElementById('videoCallStatus');
-            if (videoCallModal) {
-                videoCallModal.style.display = 'flex';
+            
+            if (!videoCallModal) {
+                console.error('❌ Modal de vídeo chamada não encontrado!');
+                alert('Erro: Modal de vídeo chamada não encontrado.');
+                return;
             }
+            
+            videoCallModal.style.display = 'flex';
+            console.log('📹 Modal de vídeo chamada aberto para quem aceitou');
+            
             if (status) {
                 status.textContent = 'Conectado';
                 status.style.color = '#4caf50';
@@ -1586,6 +1654,9 @@ class ChatManager {
                     if (localVideo) {
                         localVideo.srcObject = stream;
                         this.currentVideoStream = stream;
+                        console.log('📹 Câmera e microfone ativados para quem aceitou');
+                    } else {
+                        console.error('❌ Elemento localVideo não encontrado!');
                     }
                 })
                 .catch(err => {
@@ -1597,7 +1668,7 @@ class ChatManager {
                 });
         } catch (error) {
             console.error('Erro ao aceitar vídeo chamada:', error);
-            alert('Erro ao aceitar vídeo chamada. Tente novamente.');
+            alert('Erro ao aceitar vídeo chamada: ' + (error.message || 'Tente novamente.'));
         }
     }
 
