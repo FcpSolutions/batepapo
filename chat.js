@@ -1000,9 +1000,25 @@ class ChatManager {
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
                 .then(stream => {
                     const localVideo = document.getElementById('localVideo');
+                    const remoteVideo = document.getElementById('remoteVideo');
+                    
+                    console.log('📹 Stream obtido para quem chamou:', stream);
+                    
                     if (localVideo) {
                         localVideo.srcObject = stream;
                         this.currentVideoStream = stream;
+                        console.log('✅ Vídeo local configurado para quem chamou');
+                        
+                        // Força o vídeo a carregar
+                        localVideo.play().catch(err => {
+                            console.error('Erro ao reproduzir vídeo local:', err);
+                        });
+                    }
+                    
+                    // Limpa remoteVideo se houver stream anterior
+                    if (remoteVideo && remoteVideo.srcObject) {
+                        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+                        remoteVideo.srcObject = null;
                     }
                 })
                 .catch(err => {
@@ -1629,9 +1645,11 @@ class ChatManager {
             // Esconde o modal de convite
             this.hideVideoCallInviteModal();
 
-            // Mostra o modal de vídeo chamada
+            // Mostra o modal de vídeo chamada PRIMEIRO
             const videoCallModal = document.getElementById('videoCallModal');
             const status = document.getElementById('videoCallStatus');
+            const localVideo = document.getElementById('localVideo');
+            const remoteVideo = document.getElementById('remoteVideo');
             
             if (!videoCallModal) {
                 console.error('❌ Modal de vídeo chamada não encontrado!');
@@ -1639,24 +1657,45 @@ class ChatManager {
                 return;
             }
             
+            // Abre o modal primeiro
             videoCallModal.style.display = 'flex';
             console.log('📹 Modal de vídeo chamada aberto para quem aceitou');
             
+            // Limpa qualquer stream anterior
+            if (localVideo && localVideo.srcObject) {
+                localVideo.srcObject.getTracks().forEach(track => track.stop());
+                localVideo.srcObject = null;
+            }
+            if (remoteVideo && remoteVideo.srcObject) {
+                remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+                remoteVideo.srcObject = null;
+            }
+            
             if (status) {
-                status.textContent = 'Conectado';
-                status.style.color = '#4caf50';
+                status.textContent = 'Conectando...';
+                status.style.color = '#fff';
             }
 
             // Solicita acesso à câmera e microfone
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
                 .then(stream => {
-                    const localVideo = document.getElementById('localVideo');
+                    console.log('📹 Stream obtido para quem aceitou:', stream);
                     if (localVideo) {
                         localVideo.srcObject = stream;
                         this.currentVideoStream = stream;
-                        console.log('📹 Câmera e microfone ativados para quem aceitou');
+                        console.log('✅ Vídeo local configurado para quem aceitou');
+                        
+                        // Força o vídeo a carregar
+                        localVideo.play().catch(err => {
+                            console.error('Erro ao reproduzir vídeo local:', err);
+                        });
                     } else {
                         console.error('❌ Elemento localVideo não encontrado!');
+                    }
+                    
+                    if (status) {
+                        status.textContent = 'Conectado';
+                        status.style.color = '#4caf50';
                     }
                 })
                 .catch(err => {

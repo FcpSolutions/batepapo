@@ -712,6 +712,15 @@ body {
     border-radius: 10px;
     background: #000;
     object-fit: cover;
+    min-height: 200px;
+}
+
+#localVideo {
+    border: 3px solid #667eea;
+}
+
+#remoteVideo {
+    border: 3px solid #4caf50;
 }
 
 #localVideo {
