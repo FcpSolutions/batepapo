@@ -11,6 +11,8 @@ class ChatManager {
         this.INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutos em milissegundos
         this.blockedUsers = []; // Lista de IDs de usuários bloqueados
         this.lastUsersList = null; // Armazena o estado anterior da lista de usuários para evitar re-renderizações desnecessárias
+        this.lastMessagesList = null; // Armazena o estado anterior das mensagens para evitar re-renderizações desnecessárias
+        this.isLoadingMessages = false; // Flag para evitar atualizações simultâneas
         this.init();
     }
 
@@ -28,7 +30,7 @@ class ChatManager {
         this.onlineUsers.add(this.currentUser.id);
         
         // Carrega mensagens existentes
-        this.loadMessages();
+        this.loadMessages(true); // Força atualização inicial
 
         // Carrega lista de usuários bloqueados
         this.loadBlockedUsers();
@@ -567,16 +569,21 @@ class ChatManager {
         }
     }
 
-    async loadMessages() {
+    async loadMessages(forceUpdate = false) {
+        // Evita atualizações simultâneas
+        if (this.isLoadingMessages && !forceUpdate) {
+            return;
+        }
+
         const chatMessages = document.getElementById('chatMessages');
         if (!chatMessages) return;
-        
-        chatMessages.innerHTML = '';
 
-        // Carrega usuários bloqueados antes de filtrar mensagens
-        await this.loadBlockedUsers();
+        this.isLoadingMessages = true;
 
         try {
+            // Carrega usuários bloqueados antes de filtrar mensagens
+            await this.loadBlockedUsers();
+
             const service = window.supabaseService || supabaseService;
             let messages = [];
 
@@ -588,7 +595,9 @@ class ChatManager {
                     // Verifica se o usuário está bloqueado
                     const isBlocked = this.blockedUsers.includes(this.privateChatWith);
                     if (isBlocked) {
+                        chatMessages.innerHTML = '';
                         this.showEmptyState();
+                        this.isLoadingMessages = false;
                         return;
                     }
                     messages = await service.getPrivateMessages(this.currentUser.id, this.privateChatWith, 100);
@@ -622,17 +631,38 @@ class ChatManager {
                 return true;
             });
 
+            // Cria uma chave simples para comparar (apenas IDs ordenados)
+            const currentMessagesKey = JSON.stringify(filteredMessages.map(m => m.id).sort());
+            const lastMessagesKey = this.lastMessagesList ? JSON.stringify(this.lastMessagesList.map(m => m.id).sort()) : null;
+
+            // Se não houve mudanças e não é uma atualização forçada, não recria a lista
+            if (!forceUpdate && currentMessagesKey === lastMessagesKey && chatMessages.children.length > 0) {
+                // Apenas atualiza this.messages para compatibilidade
+                this.messages = messages;
+                this.isLoadingMessages = false;
+                return; // Não recria a lista se não houve mudanças
+            }
+
+            // Limpa a lista apenas se necessário
+            chatMessages.innerHTML = '';
+
             // Atualiza this.messages para compatibilidade
             this.messages = messages;
 
             if (filteredMessages.length === 0) {
                 this.showEmptyState();
+                this.lastMessagesList = [];
+                this.isLoadingMessages = false;
                 return;
             }
 
+            // Renderiza as mensagens
             filteredMessages.forEach(message => {
                 this.displayMessage(message);
             });
+
+            // Armazena o estado atual para próxima comparação
+            this.lastMessagesList = filteredMessages.map(m => ({ id: m.id }));
 
             this.scrollToBottom();
         } catch (error) {
@@ -641,13 +671,19 @@ class ChatManager {
             const fallbackMessages = JSON.parse(localStorage.getItem('chatMessages')) || [];
             if (fallbackMessages.length > 0) {
                 this.messages = fallbackMessages;
+                chatMessages.innerHTML = '';
                 fallbackMessages.forEach(message => {
                     this.displayMessage(message);
                 });
                 this.scrollToBottom();
+                this.lastMessagesList = fallbackMessages.map(m => ({ id: m.id }));
             } else {
+                chatMessages.innerHTML = '';
                 this.showEmptyState();
+                this.lastMessagesList = [];
             }
+        } finally {
+            this.isLoadingMessages = false;
         }
     }
 
@@ -1038,7 +1074,7 @@ class ChatManager {
                 
                 // Recarrega a lista de usuários
                 await this.loadOnlineUsers(true); // Força atualização após bloquear
-                await this.loadMessages();
+                await this.loadMessages(true); // Força atualização após bloquear
                 
                 alert('Usuário bloqueado com sucesso!');
             } else {
@@ -1080,7 +1116,7 @@ class ChatManager {
         this.updateActivity().catch(err => {
             console.warn('Erro ao atualizar atividade:', err);
         });
-        await this.loadMessages();
+        await this.loadMessages(true); // Força atualização ao mudar de modo
         await this.loadOnlineUsers(true); // Força atualização ao mudar de modo
         document.getElementById('messageInput').placeholder = 'Digite sua mensagem pública...';
     }
@@ -1104,7 +1140,7 @@ class ChatManager {
         this.updateActivity().catch(err => {
             console.warn('Erro ao atualizar atividade:', err);
         });
-        await this.loadMessages();
+        await this.loadMessages(true); // Força atualização ao mudar de modo
         await this.loadOnlineUsers(true); // Força atualização ao mudar de modo
         document.getElementById('messageInput').placeholder = `Mensagem privada para ${this.escapeHtml(userName)}...`;
     }
@@ -1132,10 +1168,11 @@ class ChatManager {
 
     observeNewMessages() {
         // Observa mudanças no localStorage de outros usuários (simulação)
+        // Nota: Com Supabase, isso não é mais necessário, mas mantido para compatibilidade
         window.addEventListener('storage', (e) => {
             if (e.key === 'chatMessages') {
-                this.messages = JSON.parse(e.newValue) || [];
-                this.loadMessages();
+                // Não recarrega automaticamente - o Supabase já atualiza via polling
+                // this.loadMessages(true); // Comentado para evitar piscar
             }
             if (e.key === 'chatUsers') {
                 this.loadOnlineUsers(true); // Força atualização quando há mudança no storage
@@ -1161,14 +1198,12 @@ class ChatManager {
     }
 
     startPeriodicUpdates() {
-        // Atualiza mensagens periodicamente (mais frequente)
+        // Atualiza mensagens periodicamente (menos frequente para evitar piscar)
+        // Usa Supabase diretamente, não localStorage
         setInterval(() => {
-            const storedMessages = JSON.parse(localStorage.getItem('chatMessages')) || [];
-            if (JSON.stringify(storedMessages) !== JSON.stringify(this.messages)) {
-                this.messages = storedMessages;
-                this.loadMessages();
-            }
-        }, 1000);
+            // Não força atualização, só atualiza se houver mudanças
+            this.loadMessages(false);
+        }, 3000); // Aumentado para 3 segundos para reduzir piscar
 
         // Atualiza lista de usuários com menos frequência (5 segundos)
         setInterval(() => {
