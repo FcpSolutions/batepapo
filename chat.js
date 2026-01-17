@@ -22,6 +22,7 @@ class ChatManager {
         this.peerConnection = null; // Conexão WebRTC
         this.webrtcSignalChannel = null; // Canal Realtime para sinais WebRTC
         this.isCaller = false; // Indica se é quem iniciou a chamada
+        this.activeWebRTCInviteId = null; // ID do convite ativo para WebRTC (garantir que não seja null)
         this.init();
     }
 
@@ -1146,6 +1147,7 @@ class ChatManager {
         
         // Reseta flags
         this.isCaller = false;
+        this.activeWebRTCInviteId = null;
         
         modal.style.display = 'none';
         
@@ -1618,6 +1620,8 @@ class ChatManager {
             if (invite.caller_id === this.currentUser.id) {
                 console.log('✅ Convite aceito - iniciando WebRTC para quem chamou');
                 this.isCaller = true;
+                // Armazena o inviteId para WebRTC
+                this.activeWebRTCInviteId = invite.id;
                 
                 // Cria conexão WebRTC e envia oferta
                 if (this.currentVideoStream) {
@@ -1644,6 +1648,8 @@ class ChatManager {
             else if (invite.recipient_id === this.currentUser.id) {
                 console.log('✅ Convite aceito - aguardando oferta WebRTC de quem chamou');
                 this.isCaller = false;
+                // Armazena o inviteId para WebRTC
+                this.activeWebRTCInviteId = invite.id;
                 
                 // A oferta será recebida via handleWebRTCSignal
                 const videoCallModal = document.getElementById('videoCallModal');
@@ -1739,6 +1745,9 @@ class ChatManager {
             // Aceita o convite
             const acceptedInvite = await service.acceptVideoCallInvite(this.currentIncomingVideoCallInviteId);
             console.log('✅ Convite aceito com sucesso:', acceptedInvite);
+
+            // Armazena o inviteId para WebRTC (importante para enviar sinais)
+            this.activeWebRTCInviteId = acceptedInvite.id;
 
             // Define o usuário com quem está conversando (para WebRTC)
             this.privateChatWith = acceptedInvite.caller_id;
@@ -2207,6 +2216,13 @@ class ChatManager {
     async sendOffer() {
         if (!this.peerConnection || !this.currentVideoStream) return;
 
+        // Valida se temos o inviteId necessário
+        const inviteId = this.activeWebRTCInviteId || (this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId);
+        if (!inviteId) {
+            console.error('❌ Erro: inviteId não disponível para enviar oferta');
+            return;
+        }
+
         try {
             // Adiciona stream local à conexão
             this.currentVideoStream.getTracks().forEach(track => {
@@ -2217,11 +2233,15 @@ class ChatManager {
             const offer = await this.peerConnection.createOffer();
             await this.peerConnection.setLocalDescription(offer);
 
-            console.log('📤 Enviando oferta WebRTC...');
+            console.log('📤 Enviando oferta WebRTC...', { inviteId });
             
             const service = window.supabaseService || supabaseService;
-            const inviteId = this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId;
             const toUserId = this.privateChatWith;
+
+            if (!toUserId) {
+                console.error('❌ Erro: toUserId não disponível');
+                return;
+            }
 
             await service.sendWebRTCSignal(
                 inviteId,
@@ -2262,6 +2282,16 @@ class ChatManager {
             const inviteId = signal.invite_id;
             const toUserId = signal.from_user_id;
 
+            // Armazena o inviteId para futuros sinais
+            if (!this.activeWebRTCInviteId) {
+                this.activeWebRTCInviteId = inviteId;
+            }
+
+            if (!inviteId || !toUserId) {
+                console.error('❌ Erro: inviteId ou toUserId não disponível para enviar resposta');
+                return;
+            }
+
             await service.sendWebRTCSignal(
                 inviteId,
                 toUserId,
@@ -2290,11 +2320,21 @@ class ChatManager {
     }
 
     async sendICECandidate(candidate) {
+        // Valida se temos o inviteId necessário
+        const inviteId = this.activeWebRTCInviteId || (this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId);
+        if (!inviteId) {
+            console.warn('⚠️ inviteId não disponível, ignorando ICE candidate');
+            return;
+        }
+
+        const toUserId = this.privateChatWith;
+        if (!toUserId) {
+            console.warn('⚠️ toUserId não disponível, ignorando ICE candidate');
+            return;
+        }
+
         try {
             const service = window.supabaseService || supabaseService;
-            const inviteId = this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId;
-            const toUserId = this.privateChatWith;
-
             await service.sendWebRTCSignal(
                 inviteId,
                 toUserId,
