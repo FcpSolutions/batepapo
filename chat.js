@@ -213,11 +213,69 @@ class ChatManager {
         // Marca usuário como offline quando a página/janela for fechada
         this.setupBeforeUnload();
 
-        // Marca usuário como offline quando a página/janela for fechada
-        this.setupBeforeUnload();
-
         // Eventos para detectar atividade do usuário
         this.setupActivityDetection();
+
+        // Controles mobile - menu sidebar
+        this.setupMobileMenu();
+    }
+
+    setupMobileMenu() {
+        const menuToggleBtn = document.getElementById('menuToggleBtn');
+        const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+        const sidebar = document.getElementById('usersSidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+
+        if (menuToggleBtn) {
+            menuToggleBtn.addEventListener('click', () => {
+                if (sidebar) {
+                    sidebar.classList.add('open');
+                }
+                if (overlay) {
+                    overlay.classList.add('active');
+                }
+            });
+        }
+
+        if (sidebarCloseBtn) {
+            sidebarCloseBtn.addEventListener('click', () => {
+                this.closeSidebar();
+            });
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', () => {
+                this.closeSidebar();
+            });
+        }
+
+        // Fecha sidebar ao selecionar usuário no mobile
+        const usersList = document.getElementById('usersList');
+        if (usersList) {
+            usersList.addEventListener('click', (e) => {
+                // Se clicou em um user-item (não em botões de ação)
+                if (e.target.closest('.user-item') && !e.target.closest('.user-actions')) {
+                    // Verifica se está no mobile
+                    if (window.innerWidth <= 768) {
+                        setTimeout(() => {
+                            this.closeSidebar();
+                        }, 300); // Pequeno delay para melhor UX
+                    }
+                }
+            });
+        }
+    }
+
+    closeSidebar() {
+        const sidebar = document.getElementById('usersSidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        
+        if (sidebar) {
+            sidebar.classList.remove('open');
+        }
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
     }
 
     setupActivityDetection() {

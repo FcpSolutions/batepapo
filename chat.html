@@ -52,6 +52,7 @@
 <body>
     <div class="chat-container">
         <div class="chat-header">
+            <button class="menu-toggle-btn" id="menuToggleBtn" title="Menu">☰</button>
             <div class="header-info">
                 <h1>💬 Bate-Papo</h1>
                 <div class="user-info">
@@ -68,10 +69,12 @@
         </div>
 
         <div class="chat-main">
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
             <div class="users-sidebar" id="usersSidebar">
                 <div class="sidebar-header">
                     <h3>👥 Usuários Online</h3>
                     <span class="online-count-badge" id="onlineCountBadge">0</span>
+                    <button class="sidebar-close-btn" id="sidebarCloseBtn" title="Fechar">✕</button>
                 </div>
                 <div class="users-list" id="usersList">
                     <!-- Lista de usuários será inserida aqui via JavaScript -->
