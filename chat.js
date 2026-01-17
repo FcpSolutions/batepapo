@@ -13,6 +13,8 @@ class ChatManager {
         this.lastUsersList = null; // Armazena o estado anterior da lista de usuários para evitar re-renderizações desnecessárias
         this.lastMessagesList = null; // Armazena o estado anterior das mensagens para evitar re-renderizações desnecessárias
         this.isLoadingMessages = false; // Flag para evitar atualizações simultâneas
+        this.updateActivityDebounceTimer = null; // Timer para debounce de updateActivity
+        this.lastActivityUpdate = 0; // Timestamp da última atualização de atividade
         this.messageChannel = null; // Canal Realtime para mensagens
         this.profileChannel = null; // Canal Realtime para perfis
         this.videoCallInviteChannel = null; // Canal Realtime para convites de vídeo chamada
@@ -280,27 +282,52 @@ class ChatManager {
     }
 
     setupActivityDetection() {
-        // Eventos que indicam atividade do usuário
-        const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+        // OTIMIZAÇÃO: Usa debounce para evitar atualizações excessivas
+        // Atualiza no máximo a cada 5 segundos, mesmo com muitos eventos
+        const activityEvents = ['mousedown', 'keypress', 'touchstart', 'click'];
         
         activityEvents.forEach(event => {
             document.addEventListener(event, () => {
-                // Não aguarda para não bloquear o evento
-                this.updateActivity().catch(err => {
-                    console.warn('Erro ao atualizar atividade:', err);
-                });
+                this.updateActivityDebounced();
             }, { passive: true });
         });
+
+        // Eventos menos críticos (mousemove, scroll) não atualizam atividade
+        // Apenas eventos de interação real (clique, tecla, toque)
 
         // Também detecta quando o usuário está digitando
         const messageInput = document.getElementById('messageInput');
         if (messageInput) {
             messageInput.addEventListener('input', () => {
-                this.updateActivity().catch(err => {
-                    console.warn('Erro ao atualizar atividade:', err);
-                });
+                this.updateActivityDebounced();
             });
         }
+    }
+
+    updateActivityDebounced() {
+        // Debounce: atualiza no máximo a cada 5 segundos
+        const now = Date.now();
+        const timeSinceLastUpdate = now - this.lastActivityUpdate;
+        
+        if (timeSinceLastUpdate < 5000) {
+            // Se atualizou há menos de 5 segundos, apenas atualiza o timestamp local
+            this.lastActivityTime = now;
+            this.resetInactivityTimer();
+            return;
+        }
+
+        // Limpa timer anterior
+        if (this.updateActivityDebounceTimer) {
+            clearTimeout(this.updateActivityDebounceTimer);
+        }
+
+        // Agenda atualização após 1 segundo (debounce)
+        this.updateActivityDebounceTimer = setTimeout(() => {
+            this.updateActivity().catch(err => {
+                console.warn('Erro ao atualizar atividade:', err);
+            });
+            this.lastActivityUpdate = Date.now();
+        }, 1000);
     }
 
     async updateActivity() {
@@ -696,8 +723,11 @@ class ChatManager {
         this.isLoadingMessages = true;
 
         try {
-            // Carrega usuários bloqueados antes de filtrar mensagens
-            await this.loadBlockedUsers();
+            // OTIMIZAÇÃO: Carrega usuários bloqueados apenas uma vez no início
+            // Não precisa carregar toda vez que carrega mensagens
+            if (this.blockedUsers.length === 0) {
+                await this.loadBlockedUsers();
+            }
 
             const service = window.supabaseService;
             let messages = [];
@@ -1288,14 +1318,15 @@ class ChatManager {
             usersList.appendChild(publicChatBtn);
 
             // Adiciona outros usuários
+            // OTIMIZAÇÃO: Usa this.blockedUsers diretamente (já carregado) em vez de query individual
             for (const user of otherUsers) {
                 const userItem = document.createElement('div');
                 const isActive = this.chatMode === 'private' && this.privateChatWith === user.id;
                 const isBlocked = this.blockedUsers.includes(user.id);
                 userItem.className = `user-item ${isActive ? 'active' : ''} ${isBlocked ? 'blocked' : ''}`;
                 
-                // Verifica se está bloqueado
-                const isUserBlocked = await this.checkIfUserBlocked(user.id);
+                // OTIMIZAÇÃO: Usa this.blockedUsers diretamente (já temos a lista completa)
+                const isUserBlocked = isBlocked;
                 
                 userItem.innerHTML = `
                     <div class="user-avatar">👤</div>
@@ -1539,10 +1570,17 @@ class ChatManager {
             });
 
             // Inscreve-se em atualizações de perfis (usuários online)
+            // OTIMIZAÇÃO: Usa debounce para evitar atualizações excessivas
+            let profileUpdateTimer = null;
             this.profileChannel = service.subscribeToProfiles((payload) => {
                 if (payload.eventType === 'UPDATE') {
-                    // Atualiza lista de usuários quando há mudança de atividade
-                    this.loadOnlineUsers(false);
+                    // Debounce: atualiza lista no máximo a cada 2 segundos
+                    if (profileUpdateTimer) {
+                        clearTimeout(profileUpdateTimer);
+                    }
+                    profileUpdateTimer = setTimeout(() => {
+                        this.loadOnlineUsers(false);
+                    }, 2000);
                 }
             });
 
@@ -1960,19 +1998,19 @@ class ChatManager {
     }
 
     startPeriodicUpdates() {
-        // Atualiza mensagens periodicamente apenas como fallback (muito menos frequente)
-        // O Realtime deve fazer a maior parte do trabalho
+        // REMOVIDO: Polling desnecessário - Realtime já faz tudo em tempo real
+        // O Realtime via WebSockets é muito mais eficiente que polling
+        // Se o Realtime não estiver funcionando, o usuário verá erro no console
+        // e pode recarregar a página
+        
+        // Apenas um fallback muito raro (5 minutos) caso Realtime falhe completamente
         setInterval(() => {
-            // Só atualiza se Realtime não estiver funcionando
-            if (!this.messageChannel) {
+            // Só atualiza se Realtime não estiver funcionando E não houver mensagens recentes
+            if (!this.messageChannel && this.messages.length === 0) {
+                console.warn('⚠️ Realtime não está funcionando, fazendo fallback...');
                 this.loadMessages(false);
             }
-        }, 30000); // 30 segundos - apenas como fallback
-
-        // Atualiza lista de usuários com menos frequência (10 segundos)
-        setInterval(() => {
-            this.loadOnlineUsers(false); // false = não força atualização, só atualiza se houver mudanças
-        }, 10000);
+        }, 300000); // 5 minutos - apenas em caso de falha total do Realtime
     }
 
     escapeHtml(text) {

@@ -420,13 +420,16 @@ class SupabaseService {
                 return [];
             }
             
-            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+            // OTIMIZAÇÃO: Reduzido para 15 minutos (mais eficiente) e remove email (não necessário)
+            const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
             
+            // OTIMIZAÇÃO: Seleciona apenas campos necessários (remove email)
             const { data, error } = await this.client
                 .from('profiles')
-                .select('id, nickname, city, email, last_activity')
-                .gte('last_activity', thirtyMinutesAgo)
-                .order('last_activity', { ascending: false });
+                .select('id, nickname, city, last_activity')
+                .gte('last_activity', fifteenMinutesAgo)
+                .order('last_activity', { ascending: false })
+                .limit(100); // Limite máximo de usuários online
 
             if (error) throw error;
             return data || [];
@@ -495,10 +498,17 @@ class SupabaseService {
     async getPublicMessages(limit = 100) {
         try {
             this.checkReady();
+            // OTIMIZAÇÃO: Seleciona apenas campos necessários (remove campos desnecessários)
             const { data, error } = await this.client
                 .from('messages')
                 .select(`
-                    *,
+                    id,
+                    user_id,
+                    content,
+                    type,
+                    media_type,
+                    media_url,
+                    created_at,
                     profiles!messages_user_id_fkey(nickname, city)
                 `)
                 .eq('type', 'public')
@@ -529,38 +539,30 @@ class SupabaseService {
     async getPrivateMessages(userId, otherUserId, limit = 100) {
         try {
             this.checkReady();
-            // Busca mensagens onde userId é remetente e otherUserId é destinatário
-            const { data: sentMessages, error: sentError } = await this.client
+            // OTIMIZAÇÃO: Seleciona apenas campos necessários e usa OR para uma única query
+            // Busca mensagens privadas entre os dois usuários em uma única query
+            const { data: messages, error: messagesError } = await this.client
                 .from('messages')
                 .select(`
-                    *,
+                    id,
+                    user_id,
+                    recipient_id,
+                    content,
+                    type,
+                    media_type,
+                    media_url,
+                    created_at,
                     profiles!messages_user_id_fkey(nickname, city)
                 `)
                 .eq('type', 'private')
-                .eq('user_id', userId)
-                .eq('recipient_id', otherUserId)
+                .or(`and(user_id.eq.${userId},recipient_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},recipient_id.eq.${userId})`)
                 .order('created_at', { ascending: false })
-                .limit(limit);
+                .limit(limit * 2); // Limite maior porque busca ambas as direções
 
-            if (sentError) throw sentError;
-
-            // Busca mensagens onde otherUserId é remetente e userId é destinatário
-            const { data: receivedMessages, error: receivedError } = await this.client
-                .from('messages')
-                .select(`
-                    *,
-                    profiles!messages_user_id_fkey(nickname, city)
-                `)
-                .eq('type', 'private')
-                .eq('user_id', otherUserId)
-                .eq('recipient_id', userId)
-                .order('created_at', { ascending: false })
-                .limit(limit);
-
-            if (receivedError) throw receivedError;
-
+            if (messagesError) throw messagesError;
+            
             // Combina e ordena todas as mensagens
-            const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+            const allMessages = messages || [];
             allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             // Formata os dados para compatibilidade
