@@ -792,6 +792,95 @@ class SupabaseService {
         }
     }
 
+    async deleteUserVideoCallInvites(userId) {
+        try {
+            this.checkReady();
+            
+            // Remove convites onde o usuário é quem chamou
+            const { error: callerError } = await this.client
+                .from('video_call_invites')
+                .delete()
+                .eq('caller_id', userId);
+
+            if (callerError) throw callerError;
+
+            // Remove convites onde o usuário é quem recebeu
+            const { error: recipientError } = await this.client
+                .from('video_call_invites')
+                .delete()
+                .eq('recipient_id', userId);
+
+            if (recipientError) throw recipientError;
+
+            return true;
+        } catch (error) {
+            console.error('Erro ao deletar convites de vídeo chamada:', error);
+            throw error;
+        }
+    }
+
+    async deleteUserWebRTCSignals(userId) {
+        try {
+            this.checkReady();
+            
+            // Remove sinais onde o usuário é remetente
+            const { error: fromError } = await this.client
+                .from('webrtc_signals')
+                .delete()
+                .eq('from_user_id', userId);
+
+            if (fromError) throw fromError;
+
+            // Remove sinais onde o usuário é destinatário
+            const { error: toError } = await this.client
+                .from('webrtc_signals')
+                .delete()
+                .eq('to_user_id', userId);
+
+            if (toError) throw toError;
+
+            return true;
+        } catch (error) {
+            console.error('Erro ao deletar sinais WebRTC:', error);
+            throw error;
+        }
+    }
+
+    async deleteUserBlocks(userId) {
+        try {
+            this.checkReady();
+            
+            // Remove bloqueios onde o usuário bloqueou alguém
+            const { error: blockerError } = await this.client
+                .from('user_blocks')
+                .delete()
+                .eq('blocker_id', userId);
+
+            if (blockerError) throw blockerError;
+
+            // Remove bloqueios onde o usuário foi bloqueado
+            const { error: blockedError } = await this.client
+                .from('user_blocks')
+                .delete()
+                .eq('blocked_id', userId);
+
+            if (blockedError) throw blockedError;
+
+            return true;
+        } catch (error) {
+            console.error('Erro ao deletar bloqueios:', error);
+            throw error;
+        }
+    }
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Erro ao deletar mídias:', error);
+            throw error;
+        }
+    }
+
     // ========== VÍDEO CHAMADA ==========
 
     async createVideoCallInvite(recipientId) {

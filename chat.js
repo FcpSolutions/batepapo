@@ -423,15 +423,37 @@ class ChatManager {
         // Remove dados de atividade do usuário
         localStorage.removeItem('lastActivity_' + userId);
 
-        // Remove mensagens e mídias do Supabase
+        // Remove TODOS os dados do usuário no Supabase
         try {
             const service = window.supabaseService || supabaseService;
             if (service && service.isReady()) {
+                console.log('🧹 Iniciando limpeza completa de dados do usuário...');
+                
+                // Remove mensagens (públicas e privadas)
                 await service.deleteUserMessages(userId);
+                console.log('✅ Mensagens deletadas');
+                
+                // Remove mídias (fotos e vídeos)
                 await service.deleteUserMedia(userId);
+                console.log('✅ Mídias deletadas');
+                
+                // Remove convites de vídeo chamada
+                await service.deleteUserVideoCallInvites(userId);
+                console.log('✅ Convites de vídeo chamada deletados');
+                
+                // Remove sinais WebRTC
+                await service.deleteUserWebRTCSignals(userId);
+                console.log('✅ Sinais WebRTC deletados');
+                
+                // Remove bloqueios
+                await service.deleteUserBlocks(userId);
+                console.log('✅ Bloqueios deletados');
+                
+                console.log('✅ Limpeza completa concluída');
             }
         } catch (error) {
             console.error('Erro ao limpar dados no Supabase:', error);
+            // Continua mesmo se houver erro para garantir que o logout aconteça
         }
 
         // Log para debug (pode ser removido em produção)
