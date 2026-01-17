@@ -1877,46 +1877,23 @@ class ChatManager {
     }
 
     async handleNewMessage(newMessage) {
-        // O payload do Realtime pode vir em diferentes formatos
-        // Precisamos buscar o perfil do usuário se não vier no payload
-        let nickname = 'Usuário';
-        let city = '';
+        // SISTEMA EFÊMERO: Mensagens vêm via Broadcast já formatadas
+        // O payload já contém nickname, city, etc. (não precisa buscar do banco)
+        console.log('📨 Nova mensagem recebida:', newMessage);
         
-        if (newMessage.profiles) {
-            nickname = newMessage.profiles.nickname || 'Usuário';
-            city = newMessage.profiles.city || '';
-        } else {
-            // Se não vier o perfil, busca do Supabase
-            try {
-                const service = window.supabaseService;
-                if (service && service.isReady()) {
-                    const { data } = await service.client
-                        .from('profiles')
-                        .select('nickname, city')
-                        .eq('id', newMessage.user_id)
-                        .single();
-                    if (data) {
-                        nickname = data.nickname || 'Usuário';
-                        city = data.city || '';
-                    }
-                }
-            } catch (error) {
-                console.warn('Erro ao buscar perfil da mensagem:', error);
-            }
-        }
-
-        // Formata a mensagem para o formato esperado
+        // O Broadcast já envia a mensagem formatada, mas pode vir com campos diferentes
+        // Normaliza para o formato esperado
         const formattedMessage = {
-            id: newMessage.id,
-            userId: newMessage.user_id,
-            nickname: nickname,
-            city: city,
+            id: newMessage.id || newMessage.user_id, // Fallback se não tiver id
+            userId: newMessage.userId || newMessage.user_id,
+            nickname: newMessage.nickname || 'Usuário',
+            city: newMessage.city || '',
             content: newMessage.content,
             type: newMessage.type,
-            mediaType: newMessage.media_type,
-            mediaData: newMessage.media_url,
-            recipientId: newMessage.recipient_id,
-            timestamp: newMessage.created_at
+            mediaType: newMessage.mediaType || newMessage.media_type,
+            mediaData: newMessage.mediaData || newMessage.media_url,
+            recipientId: newMessage.recipientId || newMessage.recipient_id,
+            timestamp: newMessage.timestamp || newMessage.created_at || new Date().toISOString()
         };
 
         // Verifica se a mensagem é relevante para o usuário atual

@@ -2,6 +2,7 @@
 class SupabaseService {
     constructor() {
         this.client = null;
+        this.messageChannel = null; // Canal compartilhado para mensagens
         this.init();
     }
 
@@ -486,11 +487,39 @@ class SupabaseService {
                 timestamp: timestamp
             };
             
-            // Envia via Broadcast Channel (não salva no banco)
-            const channel = this.client.channel('messages-broadcast');
-            await channel.subscribe();
+            // CORREÇÃO: Usa o canal compartilhado (mesmo canal usado para receber)
+            // Garante que todos os usuários estão no mesmo canal
+            if (!this.messageChannel) {
+                // Se o canal não existe, cria e inscreve
+                this.messageChannel = this.client.channel('messages-broadcast', {
+                    config: {
+                        broadcast: { self: true }
+                    }
+                });
+                
+                // Aguarda a inscrição estar completa antes de enviar
+                await new Promise((resolve, reject) => {
+                    this.messageChannel.subscribe((status) => {
+                        if (status === 'SUBSCRIBED') {
+                            console.log('✅ Canal de mensagens pronto para enviar');
+                            resolve();
+                        } else if (status === 'CHANNEL_ERROR') {
+                            reject(new Error('Erro ao inscrever no canal'));
+                        }
+                    });
+                });
+            }
             
-            const { error } = await channel.send({
+            // Verifica se o canal está inscrito antes de enviar
+            if (this.messageChannel.state !== 'joined') {
+                console.warn('⚠️ Canal não está inscrito, tentando novamente...');
+                await this.messageChannel.subscribe();
+            }
+            
+            console.log('📤 Enviando mensagem via broadcast:', fullMessage);
+            
+            // Envia via Broadcast Channel
+            const { error } = await this.messageChannel.send({
                 type: 'broadcast',
                 event: 'message',
                 payload: fullMessage
@@ -1162,21 +1191,41 @@ class SupabaseService {
     subscribeToMessages(callback) {
         try {
             this.checkReady();
-            const channel = this.client
-                .channel('messages-broadcast', {
-                    config: {
-                        broadcast: { self: true }
-                    }
-                })
-                .on('broadcast', { event: 'message' }, (payload) => {
-                    // Formata para compatibilidade com o código existente
+            
+            // CORREÇÃO: Usa o mesmo canal compartilhado (reutiliza se já existir)
+            if (!this.messageChannel) {
+                this.messageChannel = this.client
+                    .channel('messages-broadcast', {
+                        config: {
+                            broadcast: { self: true }
+                        }
+                    })
+                    .on('broadcast', { event: 'message' }, (payload) => {
+                        console.log('📨 Mensagem recebida via broadcast:', payload);
+                        // Formata para compatibilidade com o código existente
+                        callback({
+                            eventType: 'INSERT',
+                            new: payload.payload
+                        });
+                    })
+                    .subscribe((status) => {
+                        console.log('📡 Status da inscrição em mensagens:', status);
+                        if (status === 'SUBSCRIBED') {
+                            console.log('✅ Inscrito com sucesso em mensagens (Broadcast)');
+                        }
+                    });
+            } else {
+                // Se o canal já existe, apenas adiciona o listener
+                this.messageChannel.on('broadcast', { event: 'message' }, (payload) => {
+                    console.log('📨 Mensagem recebida via broadcast:', payload);
                     callback({
                         eventType: 'INSERT',
                         new: payload.payload
                     });
-                })
-                .subscribe();
-            return channel;
+                });
+            }
+            
+            return this.messageChannel;
         } catch (error) {
             console.error('Erro ao inscrever-se em mensagens:', error);
             return null;
