@@ -444,43 +444,29 @@ class ChatManager {
             return true;
         });
 
-        // Salva mensagens atualizadas (sem as mensagens e mídias do usuário)
+        // Limpa localStorage
         localStorage.setItem('chatMessages', JSON.stringify(this.messages));
-
-        // Remove dados de atividade do usuário
         localStorage.removeItem('lastActivity_' + userId);
 
-        // Remove TODOS os dados do usuário no Supabase
+        // SISTEMA EFÊMERO: Não precisa deletar mensagens/convites/sinais do banco
+        // Apenas remove mídias do storage e bloqueios
         try {
             const service = window.supabaseService;
             if (service && service.isReady()) {
-                console.log('🧹 Iniciando limpeza completa de dados do usuário...');
+                console.log('🧹 Limpando dados do usuário...');
                 
-                // Remove mensagens (públicas e privadas)
-                await service.deleteUserMessages(userId);
-                console.log('✅ Mensagens deletadas');
-                
-                // Remove mídias (fotos e vídeos)
+                // Remove mídias (fotos e vídeos) do storage
                 await service.deleteUserMedia(userId);
                 console.log('✅ Mídias deletadas');
                 
-                // Remove convites de vídeo chamada
-                await service.deleteUserVideoCallInvites(userId);
-                console.log('✅ Convites de vídeo chamada deletados');
-                
-                // Remove sinais WebRTC
-                await service.deleteUserWebRTCSignals(userId);
-                console.log('✅ Sinais WebRTC deletados');
-                
-                // Remove bloqueios
+                // Remove bloqueios (ainda são salvos no banco)
                 await service.deleteUserBlocks(userId);
                 console.log('✅ Bloqueios deletados');
                 
-                console.log('✅ Limpeza completa concluída');
+                console.log('✅ Limpeza concluída');
             }
         } catch (error) {
-            console.error('Erro ao limpar dados no Supabase:', error);
-            // Continua mesmo se houver erro para garantir que o logout aconteça
+            console.error('Erro ao limpar dados:', error);
         }
 
         // Log para debug (pode ser removido em produção)
@@ -729,28 +715,10 @@ class ChatManager {
                 await this.loadBlockedUsers();
             }
 
-            const service = window.supabaseService;
-            let messages = [];
-
-            if (service && service.isReady()) {
-                // Busca mensagens do Supabase
-                if (this.chatMode === 'public') {
-                    messages = await service.getPublicMessages(100);
-                } else if (this.chatMode === 'private' && this.privateChatWith) {
-                    // Verifica se o usuário está bloqueado
-                    const isBlocked = this.blockedUsers.includes(this.privateChatWith);
-                    if (isBlocked) {
-                        chatMessages.innerHTML = '';
-                        this.showEmptyState();
-                        this.isLoadingMessages = false;
-                        return;
-                    }
-                    messages = await service.getPrivateMessages(this.currentUser.id, this.privateChatWith, 100);
-                }
-            } else {
-                // Fallback para localStorage se Supabase não estiver pronto
-                messages = JSON.parse(localStorage.getItem('chatMessages')) || [];
-            }
+            // SISTEMA EFÊMERO: Mensagens não são mais carregadas do banco
+            // Apenas usa mensagens em memória (this.messages)
+            // Novas mensagens chegam via Realtime Broadcast
+            let messages = this.messages || [];
 
             // Inverte para ordem cronológica (mais antigas primeiro)
             messages = messages.reverse();
@@ -1616,8 +1584,8 @@ class ChatManager {
                 }
             });
 
-            // Carrega convites pendentes ao iniciar
-            this.loadPendingVideoCallInvites();
+            // SISTEMA EFÊMERO: Não carrega convites pendentes (não são mais salvos)
+            // Convites são gerenciados apenas em memória via Broadcast
 
             // Inicia escuta de sinais WebRTC
             this.initWebRTCSignaling();

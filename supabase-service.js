@@ -458,37 +458,51 @@ class SupabaseService {
 
     // ========== MENSAGENS ==========
 
+    // SISTEMA EFÊMERO: Mensagens não são mais salvas no banco
+    // Usa apenas Broadcast Channel do Realtime
     async sendMessage(messageData) {
         try {
             this.checkReady();
             
-            const { data, error } = await this.client
-                .from('messages')
-                .insert([messageData])
-                .select(`
-                    *,
-                    profiles!messages_user_id_fkey(nickname, city)
-                `)
-                .single();
-
+            // Gera ID único para a mensagem
+            const messageId = crypto.randomUUID();
+            const timestamp = new Date().toISOString();
+            
+            // Busca perfil do usuário atual para incluir nickname e city
+            const currentUser = await this.getCurrentUser();
+            const profile = currentUser?.profile;
+            
+            // Formata mensagem completa
+            const fullMessage = {
+                id: messageId,
+                userId: messageData.user_id,
+                nickname: profile?.nickname || 'Usuário',
+                city: profile?.city || '',
+                content: messageData.content,
+                type: messageData.type,
+                mediaType: messageData.media_type,
+                mediaData: messageData.media_url,
+                recipientId: messageData.recipient_id,
+                timestamp: timestamp
+            };
+            
+            // Envia via Broadcast Channel (não salva no banco)
+            const channel = this.client.channel('messages-broadcast');
+            await channel.subscribe();
+            
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'message',
+                payload: fullMessage
+            });
+            
             if (error) {
-                console.error('Erro ao inserir mensagem no Supabase:', error);
+                console.error('Erro ao enviar mensagem via broadcast:', error);
                 throw error;
             }
             
-            // Formata os dados para compatibilidade
-            return {
-                id: data.id,
-                userId: data.user_id,
-                nickname: data.profiles?.nickname || 'Usuário',
-                city: data.profiles?.city || '',
-                content: data.content,
-                type: data.type,
-                mediaType: data.media_type,
-                mediaData: data.media_url,
-                recipientId: data.recipient_id,
-                timestamp: data.created_at
-            };
+            // Retorna a mensagem formatada
+            return fullMessage;
         } catch (error) {
             console.error('Erro ao enviar mensagem:', error);
             throw error;
@@ -877,225 +891,258 @@ class SupabaseService {
 
     // ========== VÍDEO CHAMADA ==========
 
+    // SISTEMA EFÊMERO: Convites não são mais salvos no banco
+    // Usa apenas Broadcast Channel + retorna objeto em memória
     async createVideoCallInvite(recipientId) {
         try {
             this.checkReady();
             
-            // Tenta obter o usuário de várias formas
-            let userId = null;
-            
-            // Método 1: Tenta auth.getUser()
-            try {
-                const { data: { user }, error } = await this.client.auth.getUser();
-                if (!error && user) {
-                    userId = user.id;
+            // Obtém usuário atual
+            if (!this.currentUser || !this.currentUser.id) {
+                const userData = await this.getCurrentUser();
+                if (!userData || !userData.user) {
+                    throw new Error('Usuário não autenticado. Faça login novamente.');
                 }
-            } catch (error) {
-                console.warn('Erro ao obter usuário via auth.getUser():', error);
+                this.currentUser = {
+                    id: userData.user.id,
+                    nickname: userData.profile?.nickname,
+                    email: userData.profile?.email,
+                    city: userData.profile?.city
+                };
             }
             
-            // Método 2: Tenta auth.getSession() como fallback
-            if (!userId) {
-                try {
-                    const { data: { session }, error } = await this.client.auth.getSession();
-                    if (!error && session && session.user) {
-                        userId = session.user.id;
-                    }
-                } catch (error) {
-                    console.warn('Erro ao obter sessão via auth.getSession():', error);
-                }
-            }
+            const userId = this.currentUser.id;
+
+            // Cria convite em memória (não salva no banco)
+            const inviteId = crypto.randomUUID();
+            const invite = {
+                id: inviteId,
+                caller_id: userId,
+                recipient_id: recipientId,
+                status: 'pending',
+                created_at: new Date().toISOString(),
+                answered_at: null
+            };
+
+            // Envia via Broadcast Channel
+            const channel = this.client.channel('video-call-invites-broadcast');
+            await channel.subscribe();
             
-            if (!userId) {
-                throw new Error('Usuário não autenticado. Faça login novamente.');
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'invite',
+                payload: invite
+            });
+
+            if (error) {
+                console.error('Erro ao enviar convite via broadcast:', error);
+                throw error;
             }
 
-            // Cancela convites pendentes anteriores
-            await this.client
-                .from('video_call_invites')
-                .update({ status: 'cancelled' })
-                .eq('caller_id', userId)
-                .eq('recipient_id', recipientId)
-                .eq('status', 'pending');
-
-            // Cria novo convite
-            const { data, error } = await this.client
-                .from('video_call_invites')
-                .insert({
-                    caller_id: userId,
-                    recipient_id: recipientId,
-                    status: 'pending'
-                })
-                .select()
-                .single();
-
-            if (error) throw error;
-            return data;
+            return invite;
         } catch (error) {
             console.error('Erro ao criar convite de vídeo chamada:', error);
             throw error;
         }
     }
 
+    // SISTEMA EFÊMERO: Aceita convite via Broadcast (não atualiza banco)
     async acceptVideoCallInvite(inviteId) {
         try {
             this.checkReady();
-            const { data: { user } } = await this.client.auth.getUser();
-            if (!user) throw new Error('Usuário não autenticado');
+            if (!this.currentUser || !this.currentUser.id) {
+                const userData = await this.getCurrentUser();
+                if (!userData || !userData.user) {
+                    throw new Error('Usuário não autenticado');
+                }
+                this.currentUser = {
+                    id: userData.user.id,
+                    nickname: userData.profile?.nickname,
+                    email: userData.profile?.email,
+                    city: userData.profile?.city
+                };
+            }
 
-            const { data, error } = await this.client
-                .from('video_call_invites')
-                .update({
-                    status: 'accepted',
-                    answered_at: new Date().toISOString()
-                })
-                .eq('id', inviteId)
-                .eq('recipient_id', user.id)
-                .select()
-                .single();
+            const userId = this.currentUser.id;
+            const updatedInvite = {
+                id: inviteId,
+                status: 'accepted',
+                answered_at: new Date().toISOString()
+            };
+
+            // Envia atualização via Broadcast
+            const channel = this.client.channel('video-call-invites-broadcast');
+            await channel.subscribe();
+            
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'invite-update',
+                payload: updatedInvite
+            });
 
             if (error) throw error;
-            return data;
+            return updatedInvite;
         } catch (error) {
             console.error('Erro ao aceitar convite de vídeo chamada:', error);
             throw error;
         }
     }
 
+    // SISTEMA EFÊMERO: Rejeita convite via Broadcast (não atualiza banco)
     async rejectVideoCallInvite(inviteId) {
         try {
             this.checkReady();
-            const { data: { user } } = await this.client.auth.getUser();
-            if (!user) throw new Error('Usuário não autenticado');
+            if (!this.currentUser || !this.currentUser.id) {
+                const userData = await this.getCurrentUser();
+                if (!userData || !userData.user) {
+                    throw new Error('Usuário não autenticado');
+                }
+                this.currentUser = {
+                    id: userData.user.id,
+                    nickname: userData.profile?.nickname,
+                    email: userData.profile?.email,
+                    city: userData.profile?.city
+                };
+            }
 
-            const { data, error } = await this.client
-                .from('video_call_invites')
-                .update({
-                    status: 'rejected',
-                    answered_at: new Date().toISOString()
-                })
-                .eq('id', inviteId)
-                .eq('recipient_id', user.id)
-                .select()
-                .single();
+            const updatedInvite = {
+                id: inviteId,
+                status: 'rejected',
+                answered_at: new Date().toISOString()
+            };
+
+            // Envia atualização via Broadcast
+            const channel = this.client.channel('video-call-invites-broadcast');
+            await channel.subscribe();
+            
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'invite-update',
+                payload: updatedInvite
+            });
 
             if (error) throw error;
-            return data;
+            return updatedInvite;
         } catch (error) {
             console.error('Erro ao recusar convite de vídeo chamada:', error);
             throw error;
         }
     }
 
+    // SISTEMA EFÊMERO: Cancela convite via Broadcast (não atualiza banco)
     async cancelVideoCallInvite(inviteId) {
         try {
             this.checkReady();
-            const { data: { user } } = await this.client.auth.getUser();
-            if (!user) throw new Error('Usuário não autenticado');
+            if (!this.currentUser || !this.currentUser.id) {
+                const userData = await this.getCurrentUser();
+                if (!userData || !userData.user) {
+                    throw new Error('Usuário não autenticado');
+                }
+                this.currentUser = {
+                    id: userData.user.id,
+                    nickname: userData.profile?.nickname,
+                    email: userData.profile?.email,
+                    city: userData.profile?.city
+                };
+            }
 
-            const { data, error } = await this.client
-                .from('video_call_invites')
-                .update({ status: 'cancelled' })
-                .eq('id', inviteId)
-                .eq('caller_id', user.id)
-                .select()
-                .single();
+            const updatedInvite = {
+                id: inviteId,
+                status: 'cancelled'
+            };
+
+            // Envia atualização via Broadcast
+            const channel = this.client.channel('video-call-invites-broadcast');
+            await channel.subscribe();
+            
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'invite-update',
+                payload: updatedInvite
+            });
 
             if (error) throw error;
-            return data;
+            return updatedInvite;
         } catch (error) {
             console.error('Erro ao cancelar convite de vídeo chamada:', error);
             throw error;
         }
     }
 
+    // SISTEMA EFÊMERO: Retorna array vazio (convites não são mais salvos)
     async getPendingVideoCallInvites() {
-        try {
-            this.checkReady();
-            const { data: { user } } = await this.client.auth.getUser();
-            if (!user) return [];
-
-            const { data, error } = await this.client
-                .from('video_call_invites')
-                .select(`
-                    *,
-                    caller:profiles!video_call_invites_caller_id_fkey(nickname, city)
-                `)
-                .eq('recipient_id', user.id)
-                .eq('status', 'pending')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            return data || [];
-        } catch (error) {
-            console.error('Erro ao buscar convites pendentes:', error);
-            return [];
-        }
+        // Convites são gerenciados em memória via Broadcast Channels
+        // Não há necessidade de buscar do banco
+        return [];
     }
 
     // ========== WEBRTC SIGNALING ==========
 
+    // SISTEMA EFÊMERO: Sinais WebRTC via Broadcast (não salva no banco)
     async sendWebRTCSignal(inviteId, toUserId, signalType, signalData) {
         try {
             this.checkReady();
-            let userId = null;
-            
-            // Tenta obter o usuário
-            try {
-                const { data: { user } } = await this.client.auth.getUser();
-                if (user) userId = user.id;
-            } catch (error) {
-                const { data: { session } } = await this.client.auth.getSession();
-                if (session && session.user) userId = session.user.id;
+            if (!this.currentUser || !this.currentUser.id) {
+                const userData = await this.getCurrentUser();
+                if (!userData || !userData.user) {
+                    throw new Error('Usuário não autenticado');
+                }
+                this.currentUser = {
+                    id: userData.user.id,
+                    nickname: userData.profile?.nickname,
+                    email: userData.profile?.email,
+                    city: userData.profile?.city
+                };
             }
-            
-            if (!userId) throw new Error('Usuário não autenticado');
 
-            const { data, error } = await this.client
-                .from('webrtc_signals')
-                .insert({
-                    invite_id: inviteId,
-                    from_user_id: userId,
-                    to_user_id: toUserId,
-                    signal_type: signalType,
-                    signal_data: signalData
-                })
-                .select()
-                .single();
+            const userId = this.currentUser.id;
+            const signal = {
+                id: crypto.randomUUID(),
+                invite_id: inviteId,
+                from_user_id: userId,
+                to_user_id: toUserId,
+                signal_type: signalType,
+                signal_data: signalData,
+                created_at: new Date().toISOString()
+            };
+
+            // Envia via Broadcast Channel
+            const channel = this.client.channel('webrtc-signals-broadcast');
+            await channel.subscribe();
+            
+            const { error } = await channel.send({
+                type: 'broadcast',
+                event: 'signal',
+                payload: signal
+            });
 
             if (error) throw error;
-            return data;
+            return signal;
         } catch (error) {
             console.error('Erro ao enviar sinal WebRTC:', error);
             throw error;
         }
     }
 
+    // SISTEMA EFÊMERO: Usa Broadcast Channel em vez de postgres_changes
     subscribeToWebRTCSignals(callback) {
         try {
             this.checkReady();
-            console.log('🔔 Inscrito em sinais WebRTC...');
+            console.log('🔔 Inscrito em sinais WebRTC (Broadcast)...');
             const channel = this.client
-                .channel('webrtc-signals-channel', {
+                .channel('webrtc-signals-broadcast', {
                     config: {
                         broadcast: { self: true }
                     }
                 })
-                .on('postgres_changes', 
-                    { 
-                        event: 'INSERT', 
-                        schema: 'public', 
-                        table: 'webrtc_signals' 
-                    },
-                    (payload) => {
-                        console.log('📨 Sinal WebRTC recebido:', payload);
-                        const normalizedPayload = {
-                            ...payload,
-                            eventType: payload.eventType || payload.event || 'INSERT'
-                        };
-                        callback(normalizedPayload);
-                    }
-                )
+                .on('broadcast', { event: 'signal' }, (payload) => {
+                    console.log('📨 Sinal WebRTC recebido:', payload);
+                    // Formata para compatibilidade
+                    callback({
+                        eventType: 'INSERT',
+                        new: payload.payload
+                    });
+                })
                 .subscribe((status) => {
                     console.log('📡 Status da inscrição em sinais WebRTC:', status);
                     if (status === 'SUBSCRIBED') {
@@ -1111,23 +1158,23 @@ class SupabaseService {
 
     // ========== REALTIME ==========
 
+    // SISTEMA EFÊMERO: Usa Broadcast Channel em vez de postgres_changes
     subscribeToMessages(callback) {
         try {
             this.checkReady();
             const channel = this.client
-                .channel('messages-channel', {
+                .channel('messages-broadcast', {
                     config: {
                         broadcast: { self: true }
                     }
                 })
-                .on('postgres_changes', 
-                    { 
-                        event: 'INSERT', 
-                        schema: 'public', 
-                        table: 'messages' 
-                    },
-                    callback
-                )
+                .on('broadcast', { event: 'message' }, (payload) => {
+                    // Formata para compatibilidade com o código existente
+                    callback({
+                        eventType: 'INSERT',
+                        new: payload.payload
+                    });
+                })
                 .subscribe();
             return channel;
         } catch (error) {
