@@ -872,14 +872,6 @@ class SupabaseService {
             throw error;
         }
     }
-            }
-
-            return true;
-        } catch (error) {
-            console.error('Erro ao deletar mídias:', error);
-            throw error;
-        }
-    }
 
     // ========== VÍDEO CHAMADA ==========
 

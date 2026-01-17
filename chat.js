@@ -319,7 +319,7 @@ class ChatManager {
 
         // Atualiza no Supabase (não bloqueia se houver erro de rede)
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 // Não aguarda para não bloquear o fluxo em caso de erro de rede
                 service.updateLastActivity(this.currentUser.id).catch(err => {
@@ -425,7 +425,7 @@ class ChatManager {
 
         // Remove TODOS os dados do usuário no Supabase
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 console.log('🧹 Iniciando limpeza completa de dados do usuário...');
                 
@@ -466,7 +466,7 @@ class ChatManager {
             const userId = this.currentUser ? this.currentUser.id : null;
             
             // Marca o usuário como offline no Supabase ANTES de limpar os dados
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady() && userId) {
                 try {
                     await service.setUserOffline(userId);
@@ -517,7 +517,7 @@ class ChatManager {
             const userId = this.currentUser ? this.currentUser.id : null;
             
             // Tenta marcar como offline mesmo em caso de erro
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady() && userId) {
                 try {
                     await service.setUserOffline(userId);
@@ -550,7 +550,7 @@ class ChatManager {
         });
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             let mediaUrl = null;
 
             // Se houver mídia, faz upload primeiro
@@ -699,7 +699,7 @@ class ChatManager {
             // Carrega usuários bloqueados antes de filtrar mensagens
             await this.loadBlockedUsers();
 
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             let messages = [];
 
             if (service && service.isReady()) {
@@ -1055,7 +1055,7 @@ class ChatManager {
         }
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (!service || !service.isReady()) {
                 alert('Serviço não disponível. Tente novamente.');
                 return;
@@ -1143,7 +1143,7 @@ class ChatManager {
         // Cancela convite se ainda estiver pendente
         if (this.currentVideoCallInviteId) {
             try {
-                const service = window.supabaseService || supabaseService;
+                const service = window.supabaseService;
                 if (service && service.isReady()) {
                     await service.cancelVideoCallInvite(this.currentVideoCallInviteId);
                 }
@@ -1205,7 +1205,7 @@ class ChatManager {
 
     async loadBlockedUsers() {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 const blocked = await service.getBlockedUsers();
                 this.blockedUsers = blocked.map(b => b.id);
@@ -1220,7 +1220,7 @@ class ChatManager {
         if (!usersList) return;
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             let allUsers = [];
 
             if (service && service.isReady()) {
@@ -1353,7 +1353,7 @@ class ChatManager {
 
     async checkIfUserBlocked(userId) {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 return await service.isUserBlocked(userId);
             }
@@ -1365,7 +1365,7 @@ class ChatManager {
 
     async blockUser(userId) {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 await service.blockUser(userId);
                 this.blockedUsers.push(userId);
@@ -1391,7 +1391,7 @@ class ChatManager {
 
     async unblockUser(userId) {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 await service.unblockUser(userId);
                 this.blockedUsers = this.blockedUsers.filter(id => id !== userId);
@@ -1450,7 +1450,7 @@ class ChatManager {
 
     async getUserById(userId) {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (service && service.isReady()) {
                 // Busca do Supabase (seria necessário uma função no service)
                 // Por enquanto, usa fallback
@@ -1510,7 +1510,7 @@ class ChatManager {
             
             const userId = this.currentUser ? this.currentUser.id : null;
             if (userId) {
-                const service = window.supabaseService || supabaseService;
+                const service = window.supabaseService;
                 if (service && service.isReady()) {
                     // Não aguarda para não bloquear o fechamento da página
                     // O erro já é tratado dentro da função setUserOffline
@@ -1592,7 +1592,7 @@ class ChatManager {
 
     async loadPendingVideoCallInvites() {
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (!service || !service.isReady()) return;
 
             const invites = await service.getPendingVideoCallInvites();
@@ -1758,7 +1758,7 @@ class ChatManager {
         console.log('✅ Aceitando convite:', this.currentIncomingVideoCallInviteId);
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (!service || !service.isReady()) {
                 alert('Serviço não disponível. Tente novamente.');
                 return;
@@ -1853,7 +1853,7 @@ class ChatManager {
         if (!this.currentIncomingVideoCallInviteId) return;
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (!service || !service.isReady()) {
                 alert('Serviço não disponível. Tente novamente.');
                 return;
@@ -1882,7 +1882,7 @@ class ChatManager {
         } else {
             // Se não vier o perfil, busca do Supabase
             try {
-                const service = window.supabaseService || supabaseService;
+                const service = window.supabaseService;
                 if (service && service.isReady()) {
                     const { data } = await service.client
                         .from('profiles')
@@ -2055,7 +2055,7 @@ class ChatManager {
         submitBtn.disabled = true;
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             if (!service || !service.isReady()) {
                 throw new Error('Sistema ainda não está pronto. Tente novamente.');
             }
@@ -2257,7 +2257,7 @@ class ChatManager {
 
             console.log('📤 Enviando oferta WebRTC...', { inviteId });
             
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             const toUserId = this.privateChatWith;
 
             if (!toUserId) {
@@ -2300,7 +2300,7 @@ class ChatManager {
 
             console.log('📤 Enviando resposta WebRTC...');
             
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             const inviteId = signal.invite_id;
             const toUserId = signal.from_user_id;
 
@@ -2356,7 +2356,7 @@ class ChatManager {
         }
 
         try {
-            const service = window.supabaseService || supabaseService;
+            const service = window.supabaseService;
             await service.sendWebRTCSignal(
                 inviteId,
                 toUserId,
