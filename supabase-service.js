@@ -950,6 +950,82 @@ class SupabaseService {
         }
     }
 
+    // ========== WEBRTC SIGNALING ==========
+
+    async sendWebRTCSignal(inviteId, toUserId, signalType, signalData) {
+        try {
+            this.checkReady();
+            let userId = null;
+            
+            // Tenta obter o usuário
+            try {
+                const { data: { user } } = await this.client.auth.getUser();
+                if (user) userId = user.id;
+            } catch (error) {
+                const { data: { session } } = await this.client.auth.getSession();
+                if (session && session.user) userId = session.user.id;
+            }
+            
+            if (!userId) throw new Error('Usuário não autenticado');
+
+            const { data, error } = await this.client
+                .from('webrtc_signals')
+                .insert({
+                    invite_id: inviteId,
+                    from_user_id: userId,
+                    to_user_id: toUserId,
+                    signal_type: signalType,
+                    signal_data: signalData
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Erro ao enviar sinal WebRTC:', error);
+            throw error;
+        }
+    }
+
+    subscribeToWebRTCSignals(callback) {
+        try {
+            this.checkReady();
+            console.log('🔔 Inscrito em sinais WebRTC...');
+            const channel = this.client
+                .channel('webrtc-signals-channel', {
+                    config: {
+                        broadcast: { self: true }
+                    }
+                })
+                .on('postgres_changes', 
+                    { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'webrtc_signals' 
+                    },
+                    (payload) => {
+                        console.log('📨 Sinal WebRTC recebido:', payload);
+                        const normalizedPayload = {
+                            ...payload,
+                            eventType: payload.eventType || payload.event || 'INSERT'
+                        };
+                        callback(normalizedPayload);
+                    }
+                )
+                .subscribe((status) => {
+                    console.log('📡 Status da inscrição em sinais WebRTC:', status);
+                    if (status === 'SUBSCRIBED') {
+                        console.log('✅ Inscrito com sucesso em sinais WebRTC');
+                    }
+                });
+            return channel;
+        } catch (error) {
+            console.error('Erro ao inscrever-se em sinais WebRTC:', error);
+            return null;
+        }
+    }
+
     // ========== REALTIME ==========
 
     subscribeToMessages(callback) {

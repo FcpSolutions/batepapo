@@ -41,6 +41,18 @@ BEGIN
     ELSE
         RAISE NOTICE 'Realtime já estava habilitado para tabela video_call_invites';
     END IF;
+
+    -- Habilita Realtime na tabela webrtc_signals (se ainda não estiver habilitada)
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND tablename = 'webrtc_signals'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE webrtc_signals;
+        RAISE NOTICE 'Realtime habilitado para tabela webrtc_signals';
+    ELSE
+        RAISE NOTICE 'Realtime já estava habilitado para tabela webrtc_signals';
+    END IF;
 END $$;
 
 -- ========== VERIFICAR SE FOI HABILITADO ==========

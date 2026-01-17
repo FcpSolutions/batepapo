@@ -15,6 +15,13 @@ class ChatManager {
         this.isLoadingMessages = false; // Flag para evitar atualizações simultâneas
         this.messageChannel = null; // Canal Realtime para mensagens
         this.profileChannel = null; // Canal Realtime para perfis
+        this.videoCallInviteChannel = null; // Canal Realtime para convites de vídeo chamada
+        this.currentVideoCallInviteId = null; // ID do convite atual (quando está chamando)
+        this.currentIncomingVideoCallInviteId = null; // ID do convite recebido (quando está sendo chamado)
+        this.currentVideoStream = null; // Stream de vídeo atual
+        this.peerConnection = null; // Conexão WebRTC
+        this.webrtcSignalChannel = null; // Canal Realtime para sinais WebRTC
+        this.isCaller = false; // Indica se é quem iniciou a chamada
         this.init();
     }
 
@@ -996,9 +1003,12 @@ class ChatManager {
                 status.style.color = '#fff';
             }
             
+            // Marca como chamador
+            this.isCaller = true;
+
             // Solicita acesso à câmera e microfone
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then(stream => {
+                .then(async (stream) => {
                     const localVideo = document.getElementById('localVideo');
                     const remoteVideo = document.getElementById('remoteVideo');
                     
@@ -1020,6 +1030,9 @@ class ChatManager {
                         remoteVideo.srcObject.getTracks().forEach(track => track.stop());
                         remoteVideo.srcObject = null;
                     }
+
+                    // Cria conexão WebRTC e envia oferta quando o outro aceitar
+                    // A oferta será enviada quando o convite for aceito (via handleVideoCallInviteUpdate)
                 })
                 .catch(err => {
                     console.error('Erro ao acessar mídia:', err);
@@ -1038,6 +1051,13 @@ class ChatManager {
         const modal = document.getElementById('videoCallModal');
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
+        
+        // Fecha conexão WebRTC
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+            console.log('🔌 Conexão WebRTC fechada');
+        }
         
         // Cancela convite se ainda estiver pendente
         if (this.currentVideoCallInviteId) {
@@ -1065,6 +1085,9 @@ class ChatManager {
             remoteVideo.srcObject.getTracks().forEach(track => track.stop());
             remoteVideo.srcObject = null;
         }
+        
+        // Reseta flags
+        this.isCaller = false;
         
         modal.style.display = 'none';
         
@@ -1476,6 +1499,9 @@ class ChatManager {
             // Carrega convites pendentes ao iniciar
             this.loadPendingVideoCallInvites();
 
+            // Inicia escuta de sinais WebRTC
+            this.initWebRTCSignaling();
+
             console.log('✅ Escuta de convites de vídeo chamada ativada');
         } catch (error) {
             console.error('Erro ao inicializar escuta de convites:', error);
@@ -1516,7 +1542,7 @@ class ChatManager {
         }
     }
 
-    handleVideoCallInviteUpdate(invite) {
+    async handleVideoCallInviteUpdate(invite) {
         console.log('🔄 Convite atualizado:', invite);
         console.log('👤 Usuário atual:', this.currentUser?.id);
         console.log('📞 Caller ID:', invite.caller_id);
@@ -1532,11 +1558,22 @@ class ChatManager {
         if (invite.status === 'accepted') {
             // Se o usuário atual é quem chamou
             if (invite.caller_id === this.currentUser.id) {
-                console.log('✅ Convite aceito - atualizando status para quem chamou');
+                console.log('✅ Convite aceito - iniciando WebRTC para quem chamou');
+                this.isCaller = true;
+                
+                // Cria conexão WebRTC e envia oferta
+                if (this.currentVideoStream) {
+                    await this.createPeerConnection();
+                    // Aguarda um pouco para garantir que o outro lado está pronto
+                    setTimeout(() => {
+                        this.sendOffer();
+                    }, 500);
+                }
+                
                 const status = document.getElementById('videoCallStatus');
                 if (status) {
-                    status.textContent = 'Conectado';
-                    status.style.color = '#4caf50';
+                    status.textContent = 'Conectando...';
+                    status.style.color = '#fff';
                 }
                 // Garante que o modal de vídeo chamada está aberto
                 const videoCallModal = document.getElementById('videoCallModal');
@@ -1547,15 +1584,18 @@ class ChatManager {
             // Se o usuário atual é quem aceitou, o modal já foi aberto em acceptVideoCall()
             // Mas vamos garantir que está aberto
             else if (invite.recipient_id === this.currentUser.id) {
-                console.log('✅ Convite aceito - garantindo que modal está aberto para quem aceitou');
+                console.log('✅ Convite aceito - aguardando oferta WebRTC de quem chamou');
+                this.isCaller = false;
+                
+                // A oferta será recebida via handleWebRTCSignal
                 const videoCallModal = document.getElementById('videoCallModal');
                 const status = document.getElementById('videoCallStatus');
                 if (videoCallModal) {
                     videoCallModal.style.display = 'flex';
                 }
                 if (status) {
-                    status.textContent = 'Conectado';
-                    status.style.color = '#4caf50';
+                    status.textContent = 'Conectando...';
+                    status.style.color = '#fff';
                 }
             }
         } 
@@ -1642,6 +1682,9 @@ class ChatManager {
             const acceptedInvite = await service.acceptVideoCallInvite(this.currentIncomingVideoCallInviteId);
             console.log('✅ Convite aceito com sucesso:', acceptedInvite);
 
+            // Define o usuário com quem está conversando (para WebRTC)
+            this.privateChatWith = acceptedInvite.caller_id;
+
             // Esconde o modal de convite
             this.hideVideoCallInviteModal();
 
@@ -1676,9 +1719,12 @@ class ChatManager {
                 status.style.color = '#fff';
             }
 
+            // Marca como não é chamador
+            this.isCaller = false;
+
             // Solicita acesso à câmera e microfone
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then(stream => {
+                .then(async (stream) => {
                     console.log('📹 Stream obtido para quem aceitou:', stream);
                     if (localVideo) {
                         localVideo.srcObject = stream;
@@ -1693,9 +1739,12 @@ class ChatManager {
                         console.error('❌ Elemento localVideo não encontrado!');
                     }
                     
+                    // Cria conexão WebRTC (a oferta será recebida via Realtime)
+                    await this.createPeerConnection();
+                    
                     if (status) {
-                        status.textContent = 'Conectado';
-                        status.style.color = '#4caf50';
+                        status.textContent = 'Conectando...';
+                        status.style.color = '#fff';
                     }
                 })
                 .catch(err => {
@@ -1995,6 +2044,227 @@ class ChatManager {
             setTimeout(() => {
                 errorDiv.classList.remove('show');
             }, 5000);
+        }
+    }
+
+    // ========== WEBRTC FUNCTIONS ==========
+
+    initWebRTCSignaling() {
+        const service = window.supabaseService || supabaseService;
+        if (!service || !service.isReady()) {
+            setTimeout(() => this.initWebRTCSignaling(), 1000);
+            return;
+        }
+
+        try {
+            // Inscreve-se em sinais WebRTC
+            this.webrtcSignalChannel = service.subscribeToWebRTCSignals((payload) => {
+                console.log('📡 Sinal WebRTC recebido:', payload);
+                if (payload.new) {
+                    this.handleWebRTCSignal(payload.new);
+                }
+            });
+            console.log('✅ Escuta de sinais WebRTC ativada');
+        } catch (error) {
+            console.error('Erro ao inicializar escuta de sinais WebRTC:', error);
+        }
+    }
+
+    async handleWebRTCSignal(signal) {
+        if (!this.currentUser || !this.currentUser.id) return;
+        
+        // Verifica se o sinal é para este usuário
+        if (signal.to_user_id !== this.currentUser.id) {
+            console.log('ℹ️ Sinal WebRTC não é para este usuário');
+            return;
+        }
+
+        console.log('📨 Processando sinal WebRTC:', signal.signal_type);
+
+        try {
+            if (signal.signal_type === 'offer') {
+                // Recebeu uma oferta, precisa criar resposta
+                await this.handleOffer(signal);
+            } else if (signal.signal_type === 'answer') {
+                // Recebeu uma resposta, precisa configurar
+                await this.handleAnswer(signal);
+            } else if (signal.signal_type === 'ice-candidate') {
+                // Recebeu um ICE candidate, precisa adicionar
+                await this.handleICECandidate(signal);
+            }
+        } catch (error) {
+            console.error('Erro ao processar sinal WebRTC:', error);
+        }
+    }
+
+    async createPeerConnection() {
+        // Configuração STUN/TURN (pode adicionar servidores TURN depois se necessário)
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        this.peerConnection = new RTCPeerConnection(configuration);
+        console.log('✅ RTCPeerConnection criada');
+
+        // Quando recebe stream remoto
+        this.peerConnection.ontrack = (event) => {
+            console.log('📹 Stream remoto recebido:', event.streams[0]);
+            const remoteVideo = document.getElementById('remoteVideo');
+            if (remoteVideo) {
+                remoteVideo.srcObject = event.streams[0];
+                remoteVideo.play().catch(err => {
+                    console.error('Erro ao reproduzir vídeo remoto:', err);
+                });
+            }
+        };
+
+        // Quando há novos ICE candidates
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('🧊 ICE candidate gerado:', event.candidate);
+                this.sendICECandidate(event.candidate);
+            }
+        };
+
+        // Quando a conexão muda de estado
+        this.peerConnection.onconnectionstatechange = () => {
+            console.log('🔌 Estado da conexão:', this.peerConnection.connectionState);
+            const status = document.getElementById('videoCallStatus');
+            if (status) {
+                if (this.peerConnection.connectionState === 'connected') {
+                    status.textContent = 'Conectado';
+                    status.style.color = '#4caf50';
+                } else if (this.peerConnection.connectionState === 'disconnected' || 
+                          this.peerConnection.connectionState === 'failed') {
+                    status.textContent = 'Desconectado';
+                    status.style.color = '#f44336';
+                }
+            }
+        };
+    }
+
+    async sendOffer() {
+        if (!this.peerConnection || !this.currentVideoStream) return;
+
+        try {
+            // Adiciona stream local à conexão
+            this.currentVideoStream.getTracks().forEach(track => {
+                this.peerConnection.addTrack(track, this.currentVideoStream);
+            });
+
+            // Cria oferta
+            const offer = await this.peerConnection.createOffer();
+            await this.peerConnection.setLocalDescription(offer);
+
+            console.log('📤 Enviando oferta WebRTC...');
+            
+            const service = window.supabaseService || supabaseService;
+            const inviteId = this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId;
+            const toUserId = this.privateChatWith;
+
+            await service.sendWebRTCSignal(
+                inviteId,
+                toUserId,
+                'offer',
+                { sdp: offer.sdp, type: offer.type }
+            );
+        } catch (error) {
+            console.error('Erro ao criar/enviar oferta:', error);
+        }
+    }
+
+    async handleOffer(signal) {
+        if (!this.peerConnection) {
+            await this.createPeerConnection();
+        }
+
+        try {
+            // Adiciona stream local à conexão
+            if (this.currentVideoStream) {
+                this.currentVideoStream.getTracks().forEach(track => {
+                    this.peerConnection.addTrack(track, this.currentVideoStream);
+                });
+            }
+
+            // Configura descrição remota
+            await this.peerConnection.setRemoteDescription(
+                new RTCSessionDescription(signal.signal_data)
+            );
+
+            // Cria resposta
+            const answer = await this.peerConnection.createAnswer();
+            await this.peerConnection.setLocalDescription(answer);
+
+            console.log('📤 Enviando resposta WebRTC...');
+            
+            const service = window.supabaseService || supabaseService;
+            const inviteId = signal.invite_id;
+            const toUserId = signal.from_user_id;
+
+            await service.sendWebRTCSignal(
+                inviteId,
+                toUserId,
+                'answer',
+                { sdp: answer.sdp, type: answer.type }
+            );
+        } catch (error) {
+            console.error('Erro ao processar oferta:', error);
+        }
+    }
+
+    async handleAnswer(signal) {
+        if (!this.peerConnection) {
+            console.warn('⚠️ PeerConnection não existe ao receber resposta');
+            return;
+        }
+
+        try {
+            await this.peerConnection.setRemoteDescription(
+                new RTCSessionDescription(signal.signal_data)
+            );
+            console.log('✅ Resposta WebRTC configurada');
+        } catch (error) {
+            console.error('Erro ao processar resposta:', error);
+        }
+    }
+
+    async sendICECandidate(candidate) {
+        try {
+            const service = window.supabaseService || supabaseService;
+            const inviteId = this.isCaller ? this.currentVideoCallInviteId : this.currentIncomingVideoCallInviteId;
+            const toUserId = this.privateChatWith;
+
+            await service.sendWebRTCSignal(
+                inviteId,
+                toUserId,
+                'ice-candidate',
+                {
+                    candidate: candidate.candidate,
+                    sdpMLineIndex: candidate.sdpMLineIndex,
+                    sdpMid: candidate.sdpMid
+                }
+            );
+        } catch (error) {
+            console.error('Erro ao enviar ICE candidate:', error);
+        }
+    }
+
+    async handleICECandidate(signal) {
+        if (!this.peerConnection) {
+            console.warn('⚠️ PeerConnection não existe ao receber ICE candidate');
+            return;
+        }
+
+        try {
+            await this.peerConnection.addIceCandidate(
+                new RTCIceCandidate(signal.signal_data)
+            );
+            console.log('✅ ICE candidate adicionado');
+        } catch (error) {
+            console.error('Erro ao processar ICE candidate:', error);
         }
     }
 }
